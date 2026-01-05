@@ -206,6 +206,3 @@ await manager.search(
 ---
 
 **完整设计文档**: `vertical-search-mcp-design.md`  
-**项目位置**: `/Users/z/Downloads/vertical-search-mcp/`  
-**作者**: jaxk  
-**日期**: 2026-01-05

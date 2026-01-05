@@ -35,7 +35,7 @@
 
 ### 原项目位置
 
-**路径**: `/Users/z/Documents/github/weixin-search-playwright-mcp`
+**路径**: `~/Documents/github/weixin-search-playwright-mcp`
 
 ### 原项目核心实现
 

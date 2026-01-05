@@ -826,10 +826,5 @@ A: 支持。在 `BrowserPool` 初始化时配置 proxy 参数。
 
 ---
 
-**文档版本**: v1.0  
-**最后更新**: 2026-01-05  
-**维护者**: jaxk  
-**项目地址**: `/Users/z/Downloads/vertical-search-mcp/`  
 **快速开始**: 见 `vertical-search-mcp-quickstart.md`
 
-**记住**: Day 7 前专注决策，Day 7 后再开发工具。避免工具陷阱！
