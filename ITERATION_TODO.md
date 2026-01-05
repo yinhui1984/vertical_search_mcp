@@ -145,14 +145,14 @@ class BrowserPool:
 ```
 
 **TODO清单**:
-- [ ] 创建 `core/browser_pool.py`，定义类结构和方法签名
-- [ ] 实现单例模式（使用 `__new__` 方法）
-- [ ] 实现 `init()` 方法，使用 `asyncio.Lock` 保证线程安全
-- [ ] 实现 `get_page()` 方法，复用浏览器实例，只创建新页面
-- [ ] 实现 `close()` 方法，优雅关闭并释放资源
-- [ ] 配置浏览器启动参数（参考上面代码）
-- [ ] 配置 Context（user-agent, viewport, locale）
-- [ ] 实现请求拦截器，禁用图片、字体、样式表
+- [x] 创建 `core/browser_pool.py`，定义类结构和方法签名
+- [x] 实现单例模式（使用 `__new__` 方法）
+- [x] 实现 `init()` 方法，使用 `asyncio.Lock` 保证线程安全
+- [x] 实现 `get_page()` 方法，复用浏览器实例，只创建新页面
+- [x] 实现 `close()` 方法，优雅关闭并释放资源
+- [x] 配置浏览器启动参数（参考上面代码）
+- [x] 配置 Context（user-agent, viewport, locale）
+- [x] 实现请求拦截器，禁用图片、字体、样式表
 
 **阶段2: SearchCache 实现 (2小时)**
 
@@ -204,18 +204,18 @@ class SearchCache:
 ```
 
 **TODO清单**:
-- [ ] 创建 `core/cache.py`
-- [ ] 实现 `get(key)` / `set(key, value)` / `clear()` 方法
-- [ ] 实现 TTL 过期机制（在 get 时检查时间戳）
-- [ ] 实现缓存键生成逻辑: `f"{platform}:{query}:{hash(params)}"`
+- [x] 创建 `core/cache.py`
+- [x] 实现 `get(key)` / `set(key, value)` / `clear()` 方法
+- [x] 实现 TTL 过期机制（在 get 时检查时间戳）
+- [x] 实现缓存键生成逻辑: `f"{platform}:{query}:{hash(params)}"`
 
 **阶段3: 单元测试 (2小时)**
-- [ ] 创建 `tests/unit/test_browser_pool.py`
-- [ ] 测试浏览器单例模式（多次初始化只创建一个浏览器）
-- [ ] 测试页面创建性能（应 < 1秒）
-- [ ] 测试并发安全性
-- [ ] 创建 `tests/unit/test_cache.py`
-- [ ] 测试缓存 CRUD 和 TTL 过期
+- [x] 创建 `tests/unit/test_browser_pool.py`
+- [x] 测试浏览器单例模式（多次初始化只创建一个浏览器）
+- [x] 测试页面创建性能（应 < 1秒）
+- [x] 测试并发安全性
+- [x] 创建 `tests/unit/test_cache.py`
+- [x] 测试缓存 CRUD 和 TTL 过期
 
 #### ⚠️ 风险预警
 
@@ -244,31 +244,44 @@ class SearchCache:
 
 **验收标准**:
 
-- ✅ **浏览器池可正常初始化和复用**
+- ✅ **浏览器池可正常初始化和复用** ✅ 已完成
   - 测量命令: `pytest tests/unit/test_browser_pool.py::test_browser_singleton -v`
   - 预期结果: 测试通过，日志显示只初始化一次浏览器
+  - 实际结果: ✅ 测试通过，单例模式正常工作
 
-- ✅ **创建新页面时间 < 1 秒（浏览器已存在时）**
+- ✅ **创建新页面时间 < 1 秒（浏览器已存在时）** ✅ 已完成
   - 测量命令: `pytest tests/unit/test_browser_pool.py::test_page_creation_time -v`
   - 预期结果: `assert elapsed < 1.0` 通过
+  - 实际结果: ✅ 页面创建时间 < 1 秒，性能达标
 
-- ✅ **缓存可正常存储和读取**
+- ✅ **缓存可正常存储和读取** ✅ 已完成
   - 测量命令: `pytest tests/unit/test_cache.py::test_cache_basic -v`
   - 预期结果: 所有 get/set 测试通过
+  - 实际结果: ✅ 所有 CRUD 操作测试通过
 
-- ✅ **缓存 TTL 机制工作正常**
+- ✅ **缓存 TTL 机制工作正常** ✅ 已完成
   - 测量命令: `pytest tests/unit/test_cache.py::test_cache_ttl -v`
   - 预期结果: 过期条目返回 None
+  - 实际结果: ✅ TTL 过期机制正常工作
 
-- ✅ **单元测试覆盖率 > 90%**
+- ✅ **单元测试覆盖率 > 90%** ✅ 已完成
   - 测量命令: `pytest tests/unit/ --cov=core --cov-report=term-missing`
   - 预期结果: 终端显示 `TOTAL ... 90%` 以上
+  - 实际结果: ✅ 覆盖率 93%，超过目标
 
-- ✅ **所有测试通过**
+- ✅ **所有测试通过** ✅ 已完成
   - 测量命令: `pytest tests/unit/ -v`
   - 预期结果: 无失败、无跳过
+  - 实际结果: ✅ 21 个测试全部通过
 
 **依赖**: Iteration 0
+
+**完成时间**: 2026-01-05
+
+**额外完成**:
+- ✅ 创建了 Makefile，支持便捷的测试命令
+- ✅ 所有代码包含完整的类型注解和文档字符串
+- ✅ 代码质量符合项目规范
 
 ---
 
@@ -1140,7 +1153,7 @@ class WeixinSearcher(BasePlatformSearcher):
 | 迭代 | 名称 | 预计时间 | 优先级 | 状态 |
 |------|------|----------|--------|------|
 | Iteration 0 | 项目初始化 | 0.5 天 | P0 | ✅ 已完成 |
-| Iteration 1 | 浏览器池与缓存 | 1-1.5 天 | P0 | ⬜ 未开始 |
+| Iteration 1 | 浏览器池与缓存 | 1-1.5 天 | P0 | ✅ 已完成 |
 | Iteration 2 | 基类与管理器 | 0.5 天 | P0 | ⬜ 未开始 |
 | Iteration 3 | 微信搜索重构 | 1-1.5 天 | P0 | ⬜ 未开始 |
 | Iteration 4 | 知乎平台集成 | 1 天 | P1 | ⬜ 未开始 |
