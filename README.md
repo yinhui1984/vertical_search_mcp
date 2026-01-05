@@ -76,12 +76,14 @@ Configure the MCP server in Claude Desktop's settings:
 {
   "mcpServers": {
     "vertical-search": {
-      "command": "python",
+      "command": "/path/to/vertical-search-mcp/.venv/bin/python",
       "args": ["/path/to/vertical-search-mcp/mcp_server.py"]
     }
   }
 }
 ```
+
+**Note**: Use the Python interpreter from your virtual environment (`.venv/bin/python`). If you're using a system-wide Python, you can use `python3` or the full path to your Python interpreter.
 
 ### Direct Usage
 
