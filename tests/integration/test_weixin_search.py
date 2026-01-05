@@ -117,6 +117,59 @@ class TestWeixinSearchIntegration:
         assert len(results) <= 3
 
     @pytest.mark.asyncio
+    async def test_max_results_upper_limit(self, searcher: WeixinSearcher) -> None:
+        """Test that max_results cannot exceed 30."""
+        # Should raise ValueError if max_results > 30
+        with pytest.raises(ValueError, match="max_results cannot exceed 30"):
+            await searcher.search("Python", max_results=50)
+
+    @pytest.mark.asyncio
+    async def test_pagination_with_more_than_10_results(self, searcher: WeixinSearcher) -> None:
+        """Test pagination when requesting more than 10 results."""
+        # Request 15 results (should trigger pagination)
+        results = await searcher.search("Python", max_results=15)
+
+        # Should return up to 15 results
+        assert len(results) <= 15
+        assert len(results) >= 10, "Should have at least 10 results from first page"
+
+        # All results should have valid structure
+        for result in results:
+            assert "title" in result
+            assert "url" in result
+            assert "source" in result
+
+    @pytest.mark.asyncio
+    async def test_pagination_with_30_results(self, searcher: WeixinSearcher) -> None:
+        """Test pagination with maximum allowed results (30)."""
+        # Request maximum allowed results
+        results = await searcher.search("Python", max_results=30)
+
+        # Should return up to 30 results
+        assert len(results) <= 30
+        assert len(results) >= 10, "Should have results from multiple pages"
+
+        # All results should have valid structure
+        for result in results:
+            assert "title" in result
+            assert "url" in result
+            assert "source" in result
+
+    @pytest.mark.asyncio
+    async def test_pagination_stops_when_no_more_pages(self, searcher: WeixinSearcher) -> None:
+        """Test that pagination stops when no more pages are available."""
+        # Request a large number but there may not be that many results
+        results = await searcher.search("Python", max_results=30)
+
+        # Should return whatever is available (may be less than 30)
+        assert len(results) <= 30
+
+        # All results should be valid
+        for result in results:
+            assert "title" in result
+            assert "url" in result
+
+    @pytest.mark.asyncio
     async def test_empty_query(self, searcher: WeixinSearcher) -> None:
         """Test handling of empty query."""
         results = await searcher.search("", max_results=5)

@@ -74,7 +74,7 @@ class UnifiedSearchManager:
         Args:
             platform: Platform name (must be registered)
             query: Search query string
-            max_results: Maximum number of results to return
+            max_results: Maximum number of results to return (max: 30)
             time_filter: Optional time filter (e.g., 'day', 'week', 'month')
             use_cache: Whether to use cache (default: True)
 
@@ -82,9 +82,14 @@ class UnifiedSearchManager:
             List of search result dictionaries
 
         Raises:
-            ValueError: If platform is not registered
+            ValueError: If platform is not registered or max_results > 30
             RuntimeError: If search execution fails
         """
+        # Validate max_results limit
+        MAX_RESULTS_LIMIT = 30
+        if max_results > MAX_RESULTS_LIMIT:
+            raise ValueError(f"max_results cannot exceed {MAX_RESULTS_LIMIT}")
+
         # Check cache first
         if use_cache:
             cache_key = self.cache.get_cache_key(

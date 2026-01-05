@@ -105,7 +105,8 @@ async def main():
         # Basic search
         # platform: Platform name (must be registered)
         # query: Search query string
-        # max_results: Maximum number of results to return (default: 10)
+        # max_results: Maximum number of results to return (default: 10, max: 30)
+        #   Note: If max_results > 10, pagination will be used automatically
         # time_filter: Optional time filter - 'day', 'week', 'month', or 'year' (default: None)
         # use_cache: Whether to use cache (default: True)
         results = await manager.search(
@@ -131,6 +132,15 @@ async def main():
             query='Machine Learning',
             max_results=5,
             time_filter='week',  # Search within last week
+            use_cache=True
+        )
+        
+        # Search with pagination (max_results > 10)
+        # Pagination is automatic when requesting more than 10 results
+        many_results = await manager.search(
+            platform='weixin',
+            query='Python',
+            max_results=20,  # Will automatically paginate to get 20 results
             use_cache=True
         )
         

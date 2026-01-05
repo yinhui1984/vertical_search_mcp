@@ -761,12 +761,19 @@ class WeixinSearcher(BasePlatformSearcher):
 - [x] 使用 BrowserPool 而非直接创建浏览器
 - [x] 添加错误处理
 - [x] 优化等待策略（选择器超时从 10s 降到 2s）
+- [x] 实现翻页功能（支持 max_results > 10）
+  - [x] 在 `BasePlatformSearcher` 中添加 `_parse_results_with_pagination()` 方法
+  - [x] 在 `config/platforms.yaml` 中添加 `next_page` 选择器配置
+  - [x] 在 `WeixinSearcher` 中集成翻页功能
+  - [x] 添加 max_results 上限验证（上限 30）
+  - [x] 编写翻页功能测试
 
 **阶段2: 配置完善 (1小时)**
 - [x] 完善 `config/platforms.yaml` 中的微信平台配置
 - [x] 配置选择器列表（多重备用）
 - [x] 配置 URL 参数
 - [x] 配置时间筛选映射
+- [x] 配置翻页选择器（next_page）
 
 **阶段3: 集成测试 (2小时)**
 - [x] 创建 `tests/integration/test_weixin_search.py`
@@ -775,6 +782,8 @@ class WeixinSearcher(BasePlatformSearcher):
 - [x] 测试结果解析
 - [x] 测试错误处理
 - [x] 测试浏览器复用效果
+- [x] 测试翻页功能（max_results > 10）
+- [x] 测试 max_results 上限验证（上限 30）
 
 **阶段4: 性能验证 (1小时)**
 - [x] 创建性能基准测试（复制上面代码）
@@ -861,17 +870,22 @@ class WeixinSearcher(BasePlatformSearcher):
 - [ ] 实现 `_extract_item()` 方法
 - [ ] 配置知乎特定的选择器
 - [ ] 处理知乎特定的数据格式
+- [ ] 集成翻页功能（复用 `_parse_results_with_pagination()` 方法）
+- [ ] 添加 max_results 上限验证（上限 30）
 
 **阶段3: 配置和注册 (0.5小时)**
 - [ ] 在 `config/platforms.yaml` 中添加知乎平台配置
 - [ ] 配置知乎选择器
 - [ ] 配置知乎 URL 参数
+- [ ] 配置翻页选择器（next_page，复用微信的翻页逻辑）
 - [ ] 在管理器中注册知乎平台
 
 **阶段4: 测试验证 (0.5小时)**
 - [ ] 创建 `tests/integration/test_zhihu_search.py`
 - [ ] 测试知乎搜索功能
 - [ ] 测试结果解析
+- [ ] 测试翻页功能（max_results > 10）
+- [ ] 测试 max_results 上限验证（上限 30）
 - [ ] 测试与微信搜索共存
 - [ ] 测试两个平台并发搜索
 
@@ -910,6 +924,10 @@ class WeixinSearcher(BasePlatformSearcher):
   - 测量命令: `pytest tests/integration/test_zhihu_search.py::test_result_format -v`
   - 预期结果: 结果包含 title, url, source, date, snippet 字段
 
+- ✅ **翻页功能正常（复用微信的翻页逻辑）**
+  - 测量命令: `pytest tests/integration/test_zhihu_search.py::test_pagination -v`
+  - 预期结果: 能够获取超过 10 条结果（最多 30 条）
+
 - ✅ **所有测试通过**
   - 测量命令: `pytest tests/integration/test_zhihu_search.py -v`
   - 预期结果: 无失败、无跳过
@@ -919,6 +937,7 @@ class WeixinSearcher(BasePlatformSearcher):
 **扩展性验证**:
 - 新平台接入时间: < 2 小时
 - 代码复用率: > 80%
+- 翻页功能复用: 知乎可直接复用微信的翻页逻辑（都在基类中实现）
 
 ---
 

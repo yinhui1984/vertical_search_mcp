@@ -71,11 +71,11 @@ class WeixinSearcher(BasePlatformSearcher):
         2. Builds the search URL with parameters
         3. Navigates to the search page
         4. Waits for results to load
-        5. Parses and extracts results
+        5. Parses and extracts results (with pagination if needed)
 
         Args:
             query: Search query string
-            max_results: Maximum number of results to return
+            max_results: Maximum number of results to return (max: 30)
             time_filter: Optional time filter ('day', 'week', 'month', 'year')
             **kwargs: Additional parameters (not used currently)
 
@@ -86,7 +86,15 @@ class WeixinSearcher(BasePlatformSearcher):
             - source: Source platform name
             - date: Publication date (if available)
             - snippet: Article snippet/description (if available)
+
+        Raises:
+            ValueError: If max_results > 30
         """
+        # Validate max_results limit
+        MAX_RESULTS_LIMIT = 30
+        if max_results > MAX_RESULTS_LIMIT:
+            raise ValueError(f"max_results cannot exceed {MAX_RESULTS_LIMIT}")
+
         # Sanitize query
         query = self._sanitize_query(query)
         if not query:
@@ -156,7 +164,14 @@ class WeixinSearcher(BasePlatformSearcher):
                     return []
 
             # Parse and extract results
-            return await self._parse_results(page, max_results)
+            # Use pagination if max_results > 10 (Sogou returns 10 results per page)
+            RESULTS_PER_PAGE = 10
+            if max_results > RESULTS_PER_PAGE:
+                # Use pagination to collect results from multiple pages
+                return await self._parse_results_with_pagination(page, max_results, RESULTS_PER_PAGE)
+            else:
+                # Single page is enough
+                return await self._parse_results(page, max_results)
 
         except Exception as e:
             # Log error and return empty results

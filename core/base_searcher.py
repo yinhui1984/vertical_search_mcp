@@ -173,3 +173,84 @@ class BasePlatformSearcher(ABC):
 
         # Return limited results
         return results[:max_results]
+
+    async def _parse_results_with_pagination(
+        self, page: Page, max_results: int, results_per_page: int = 10
+    ) -> List[Dict[str, str]]:
+        """
+        Parse results with pagination support.
+
+        This method handles pagination automatically when max_results > results_per_page.
+        It will navigate through pages until enough results are collected or no more pages are available.
+
+        Args:
+            page: Playwright Page instance
+            max_results: Maximum number of results to collect
+            results_per_page: Number of results per page (default: 10 for Sogou)
+
+        Returns:
+            List of extracted result dictionaries
+        """
+        all_results: List[Dict[str, str]] = []
+        current_page_num = 1
+        max_pages = (max_results + results_per_page - 1) // results_per_page  # Ceiling division
+
+        while len(all_results) < max_results and current_page_num <= max_pages:
+            # Parse current page
+            page_results = await self._parse_results(page, results_per_page)
+            all_results.extend(page_results)
+
+            # Check if we have enough results
+            if len(all_results) >= max_results:
+                break
+
+            # Try to find and click next page button
+            next_page_selector = self.config.get("selectors", {}).get("next_page")
+            if not next_page_selector:
+                # No pagination configured, return what we have
+                break
+
+            try:
+                # Find next page button
+                next_button = await page.query_selector(next_page_selector)
+                if not next_button:
+                    # No next page available
+                    break
+
+                # Check if button is disabled or has specific disabled class
+                is_disabled = await next_button.get_attribute("disabled")
+                class_name = await next_button.get_attribute("class") or ""
+                if is_disabled or "disabled" in class_name.lower() or "nop" in class_name.lower():
+                    # Button is disabled, no more pages
+                    break
+
+                # Click next page
+                await next_button.click()
+
+                # Wait for new page to load
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+
+                # Wait for results to load on new page
+                selectors = self.config.get("selectors", {}).get("article_list", [])
+                page_loaded = False
+                for selector in selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=2000, state="visible")
+                        page_loaded = True
+                        break
+                    except Exception:
+                        continue
+
+                if not page_loaded:
+                    # New page didn't load properly, return what we have
+                    break
+
+                current_page_num += 1
+
+            except Exception:
+                # Pagination failed (button not found, click failed, etc.)
+                # Return what we have collected so far
+                break
+
+        # Return limited results
+        return all_results[:max_results]

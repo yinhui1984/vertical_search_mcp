@@ -14,6 +14,8 @@ weixin:
       - ".result-item h3"
       - "li h3"
       - "h3 a[href*='mp.weixin.qq.com']"
+    # Next page button selector for pagination
+    next_page: "a#sogou_next"
   
   # URL parameters for search
   url_params:
