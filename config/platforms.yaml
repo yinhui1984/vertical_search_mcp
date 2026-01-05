@@ -35,3 +35,37 @@ weixin:
     display_name: "微信公众号"
     description: "Search WeChat public account articles"
 
+zhihu:
+  # Base URL for Zhihu search on Sogou
+  base_url: "https://zhihu.sogou.com/zhihu"
+  
+  # Multiple selector strategy for robustness
+  # Selectors are tried in order until one finds elements
+  selectors:
+    article_list:
+      - ".results h3"
+      - ".news-box h3"
+      - ".result-item h3"
+      - "li h3"
+      - "h3 a[href*='zhihu.com']"
+    # Next page button selector for pagination
+    next_page: "a#sogou_next"
+  
+  # URL parameters for search
+  url_params:
+    type: "2"  # Article type
+    ie: "utf8"  # Encoding
+  
+  # Time filter mappings (tsn parameter values)
+  time_filters:
+    day: "1"
+    week: "2"
+    month: "3"
+    year: "4"
+  
+  # Platform metadata
+  metadata:
+    name: "Zhihu"
+    display_name: "知乎"
+    description: "Search Zhihu content"
+

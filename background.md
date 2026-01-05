@@ -577,6 +577,23 @@ except Exception as e:
 
 ## 🚀 快速开始指南
 
+### ⚠️ 重要：虚拟环境
+
+**本项目使用虚拟环境，所有 Python 命令必须在虚拟环境中运行！**
+
+在运行任何 Python 或 pip 命令之前，必须先激活虚拟环境：
+
+```bash
+# 激活虚拟环境
+source .venv/bin/activate
+
+# 然后才能运行 Python 命令
+python -m pytest tests/
+pip install package_name
+```
+
+**如果不激活虚拟环境，命令会在全局环境中运行并失败！**
+
 ### 1. 阅读本文档
 
 了解项目背景、架构和设计理念。
@@ -623,6 +640,10 @@ except Exception as e:
 ### Q: 缓存会持久化吗？
 
 **A**: 当前是内存缓存，不持久化。未来可扩展为 Redis 缓存。
+
+### Q: 为什么运行 Python 命令失败？
+
+**A**: 项目使用虚拟环境，必须先激活：`source .venv/bin/activate`。或者使用 Makefile 命令（如 `make test`），它会自动处理虚拟环境。
 
 ---
 
