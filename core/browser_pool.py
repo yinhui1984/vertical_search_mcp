@@ -16,6 +16,7 @@ from playwright.async_api import (
     Browser,
     BrowserContext,
     Page,
+    Route,
 )
 
 
@@ -74,8 +75,13 @@ class BrowserPool:
             )
 
             # Create browser context with realistic settings
+            user_agent = (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
             self.context = await self.browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                user_agent=user_agent,
                 viewport={"width": 1920, "height": 1080},
                 locale="zh-CN",
                 timezone_id="Asia/Shanghai",
@@ -83,7 +89,7 @@ class BrowserPool:
 
             # Request interceptor - performance improvement 30-50%
             # Disable loading of images, fonts, stylesheets to speed up page loads
-            async def route_handler(route) -> None:
+            async def route_handler(route: Route) -> None:
                 resource_type = route.request.resource_type
                 if resource_type in ["image", "media", "font", "stylesheet"]:
                     await route.abort()

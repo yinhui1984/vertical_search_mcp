@@ -64,9 +64,7 @@ class TestBrowserPool:
             await pool.init()
 
             # First page creation (may include some overhead)
-            start1 = time.time()
             page1 = await pool.get_page()
-            time1 = time.time() - start1
             await page1.close()
 
             # Second page creation should be fast

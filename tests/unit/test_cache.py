@@ -8,8 +8,6 @@ Tests cover:
 - Concurrent access
 """
 
-import pytest
-import asyncio
 import time
 from core.cache import SearchCache
 

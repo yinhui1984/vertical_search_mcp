@@ -15,7 +15,7 @@ help:
 	@echo "  make lint              - Run flake8 linter"
 	@echo "  make type-check        - Run mypy type checker"
 	@echo "  make clean             - Clean temporary files"
-	@echo "  make all               - Run format, lint, type-check, and test"
+	@echo "  make test-all               - Run format, lint, type-check, and test"
 
 # Variables
 PYTHON := python
@@ -96,7 +96,7 @@ type-check: check-venv
 	$(ACTIVATE) && $(MYPY) core/ platforms/ --strict
 
 # Combined quality check
-all: format lint type-check test
+test-all: format lint type-check test
 	@echo "All checks passed!"
 
 # Cleanup target

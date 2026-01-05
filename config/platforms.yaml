@@ -1,0 +1,35 @@
+# Platform configuration for vertical search MCP
+# Each platform has its own configuration section
+
+weixin:
+  # Base URL for WeChat search on Sogou
+  base_url: "https://weixin.sogou.com/weixin"
+  
+  # Multiple selector strategy for robustness
+  # Selectors are tried in order until one finds elements
+  selectors:
+    article_list:
+      - ".results h3"
+      - ".news-box h3"
+      - ".result-item h3"
+      - "li h3"
+      - "h3 a[href*='mp.weixin.qq.com']"
+  
+  # URL parameters for search
+  url_params:
+    type: "2"  # Article type
+    ie: "utf8"  # Encoding
+  
+  # Time filter mappings (tsn parameter values)
+  time_filters:
+    day: "1"
+    week: "2"
+    month: "3"
+    year: "4"
+  
+  # Platform metadata
+  metadata:
+    name: "WeChat"
+    display_name: "微信公众号"
+    description: "Search WeChat public account articles"
+
