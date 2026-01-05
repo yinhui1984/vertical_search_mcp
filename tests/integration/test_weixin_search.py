@@ -1,0 +1,214 @@
+"""
+Integration tests for WeixinSearcher.
+
+These tests verify the actual search functionality by making real requests
+to the WeChat search platform. They test:
+- Basic search functionality
+- Time filter support
+- Result parsing and format
+- Error handling
+- Browser pool reuse
+"""
+
+import pytest
+from typing import List, Dict
+from core.browser_pool import BrowserPool
+from core.search_manager import UnifiedSearchManager
+from platforms.weixin_searcher import WeixinSearcher
+
+
+class TestWeixinSearchIntegration:
+    """Integration test suite for WeixinSearcher."""
+
+    @pytest.fixture
+    async def browser_pool(self) -> BrowserPool:
+        """Create and initialize browser pool."""
+        pool = BrowserPool()
+        await pool.init()
+        yield pool
+        await pool.close()
+
+    @pytest.fixture
+    def searcher(self, browser_pool: BrowserPool) -> WeixinSearcher:
+        """Create WeixinSearcher instance."""
+        return WeixinSearcher(browser_pool)
+
+    @pytest.fixture
+    def manager(self, browser_pool: BrowserPool) -> UnifiedSearchManager:
+        """Create UnifiedSearchManager with WeixinSearcher registered."""
+        manager = UnifiedSearchManager()
+        searcher = WeixinSearcher(browser_pool)
+        manager.register_platform("weixin", searcher)
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_basic_search(self, searcher: WeixinSearcher) -> None:
+        """Test basic search functionality."""
+        results = await searcher.search("Python", max_results=5)
+
+        # Should return results
+        assert isinstance(results, list)
+        assert len(results) > 0
+
+        # Each result should have required fields
+        for result in results:
+            assert isinstance(result, dict)
+            assert "title" in result
+            assert "url" in result
+            assert "source" in result
+            assert isinstance(result["title"], str)
+            assert isinstance(result["url"], str)
+            assert isinstance(result["source"], str)
+            assert len(result["title"]) > 0
+            assert len(result["url"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_result_format(self, searcher: WeixinSearcher) -> None:
+        """Test that results have correct format."""
+        results = await searcher.search("AI", max_results=3)
+
+        assert len(results) > 0
+
+        for result in results:
+            # Required fields
+            assert "title" in result
+            assert "url" in result
+            assert "source" in result
+
+            # Optional fields (may be empty)
+            assert "date" in result
+            assert "snippet" in result
+
+            # Type checks
+            assert isinstance(result["title"], str)
+            assert isinstance(result["url"], str)
+            assert isinstance(result["source"], str)
+            assert isinstance(result["date"], str)
+            assert isinstance(result["snippet"], str)
+
+            # URL should be absolute
+            assert result["url"].startswith("http://") or result["url"].startswith("https://")
+
+    @pytest.mark.asyncio
+    async def test_time_filter(self, searcher: WeixinSearcher) -> None:
+        """Test time filter functionality."""
+        # Search with day filter
+        results_day = await searcher.search("Python", max_results=5, time_filter="day")
+
+        # Search with week filter
+        results_week = await searcher.search("Python", max_results=5, time_filter="week")
+
+        # Both should return results
+        assert isinstance(results_day, list)
+        assert isinstance(results_week, list)
+
+        # Results may be different (or same if no new articles)
+        # We just verify they are valid results
+        for result in results_day + results_week:
+            assert "title" in result
+            assert "url" in result
+
+    @pytest.mark.asyncio
+    async def test_max_results_limit(self, searcher: WeixinSearcher) -> None:
+        """Test that max_results limit is respected."""
+        results = await searcher.search("Python", max_results=3)
+
+        # Should not exceed max_results
+        assert len(results) <= 3
+
+    @pytest.mark.asyncio
+    async def test_empty_query(self, searcher: WeixinSearcher) -> None:
+        """Test handling of empty query."""
+        results = await searcher.search("", max_results=5)
+
+        # Should return empty list for empty query
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_special_characters_in_query(self, searcher: WeixinSearcher) -> None:
+        """Test handling of special characters in query."""
+        # Query with special characters should be sanitized
+        results = await searcher.search('Python <script>alert("xss")</script>', max_results=5)
+
+        # Should handle gracefully (may return empty or sanitized results)
+        assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_browser_pool_reuse(self, browser_pool: BrowserPool) -> None:
+        """Test that browser pool is reused across searches."""
+        searcher = WeixinSearcher(browser_pool)
+
+        # First search
+        results1 = await searcher.search("Python", max_results=3)
+        assert len(results1) > 0
+
+        # Second search (should reuse browser)
+        results2 = await searcher.search("AI", max_results=3)
+        assert len(results2) > 0
+
+        # Both searches should work
+        assert isinstance(results1, list)
+        assert isinstance(results2, list)
+
+    @pytest.mark.asyncio
+    async def test_search_manager_integration(self, manager: UnifiedSearchManager) -> None:
+        """Test search through UnifiedSearchManager."""
+        results = await manager.search("weixin", "Python", max_results=5)
+
+        # Should return results
+        assert isinstance(results, list)
+        assert len(results) > 0
+
+        # Results should have correct format
+        for result in results:
+            assert "title" in result
+            assert "url" in result
+            assert "source" in result
+
+    @pytest.mark.asyncio
+    async def test_search_manager_cache(self, manager: UnifiedSearchManager) -> None:
+        """Test that search manager caching works."""
+        import time
+
+        # First search (no cache)
+        start1 = time.time()
+        results1 = await manager.search("weixin", "Python", max_results=5, use_cache=True)
+        time1 = time.time() - start1
+
+        # Second search (should use cache)
+        start2 = time.time()
+        results2 = await manager.search("weixin", "Python", max_results=5, use_cache=True)
+        time2 = time.time() - start2
+
+        # Results should be the same
+        assert results1 == results2
+
+        # Cached search should be faster
+        assert time2 < time1
+
+        # Clean up
+        await manager.close()
+
+    @pytest.mark.asyncio
+    async def test_multiple_searches(self, searcher: WeixinSearcher) -> None:
+        """Test multiple consecutive searches."""
+        queries = ["Python", "AI", "Machine Learning", "Deep Learning", "Neural Network"]
+
+        for query in queries:
+            results = await searcher.search(query, max_results=3)
+            assert isinstance(results, list)
+            # Some queries may return empty results, which is acceptable
+
+    @pytest.mark.asyncio
+    async def test_chinese_query(self, searcher: WeixinSearcher) -> None:
+        """Test search with Chinese characters."""
+        results = await searcher.search("人工智能", max_results=5)
+
+        # Should handle Chinese characters
+        assert isinstance(results, list)
+
+        # If results are returned, they should be valid
+        for result in results:
+            assert "title" in result
+            assert "url" in result
+

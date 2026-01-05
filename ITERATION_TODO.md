@@ -750,36 +750,38 @@ class WeixinSearcher(BasePlatformSearcher):
 ```
 
 **TODO清单**:
-- [ ] 创建 `platforms/weixin_searcher.py`
-- [ ] 继承 BasePlatformSearcher
-- [ ] 实现 `_load_config()`（从 YAML 加载）
-- [ ] 实现 `search()` 方法
-- [ ] 实现 `_extract_item()` 方法
-- [ ] 迁移原项目的多重选择器策略
-- [ ] 迁移原项目的时间筛选逻辑
-- [ ] 迁移原项目的元信息解析
-- [ ] 使用 BrowserPool 而非直接创建浏览器
-- [ ] 添加错误处理
+- [x] 创建 `platforms/weixin_searcher.py`
+- [x] 继承 BasePlatformSearcher
+- [x] 实现 `_load_config()`（从 YAML 加载）
+- [x] 实现 `search()` 方法
+- [x] 实现 `_extract_item()` 方法
+- [x] 迁移原项目的多重选择器策略
+- [x] 迁移原项目的时间筛选逻辑
+- [x] 迁移原项目的元信息解析
+- [x] 使用 BrowserPool 而非直接创建浏览器
+- [x] 添加错误处理
+- [x] 优化等待策略（选择器超时从 10s 降到 2s）
 
 **阶段2: 配置完善 (1小时)**
-- [ ] 完善 `config/platforms.yaml` 中的微信平台配置
-- [ ] 配置选择器列表（多重备用）
-- [ ] 配置 URL 参数
-- [ ] 配置时间筛选映射
+- [x] 完善 `config/platforms.yaml` 中的微信平台配置
+- [x] 配置选择器列表（多重备用）
+- [x] 配置 URL 参数
+- [x] 配置时间筛选映射
 
 **阶段3: 集成测试 (2小时)**
-- [ ] 创建 `tests/integration/test_weixin_search.py`
-- [ ] 测试基本搜索功能
-- [ ] 测试时间筛选
-- [ ] 测试结果解析
-- [ ] 测试错误处理
-- [ ] 测试浏览器复用效果
+- [x] 创建 `tests/integration/test_weixin_search.py`
+- [x] 测试基本搜索功能
+- [x] 测试时间筛选
+- [x] 测试结果解析
+- [x] 测试错误处理
+- [x] 测试浏览器复用效果
 
 **阶段4: 性能验证 (1小时)**
-- [ ] 创建性能基准测试（复制上面代码）
-- [ ] 运行对比测试，记录基准数据
-- [ ] 验证速度提升（目标 3 倍+）
-- [ ] 验证缓存效果
+- [x] 创建性能基准测试（复制上面代码）
+- [x] 运行对比测试，记录基准数据
+- [x] 验证速度提升（优化后从 10s 降到 ~3s）
+- [x] 验证缓存效果
+- [x] 创建性能诊断工具
 
 #### ⚠️ 风险预警
 
@@ -1025,6 +1027,26 @@ class WeixinSearcher(BasePlatformSearcher):
 - [ ] 记录浏览器池状态
 - [ ] 实现简单的统计接口
 
+**阶段3.5: 反爬虫应对策略 (2小时)**
+- [ ] 实现 User-Agent 轮换机制
+  - [ ] 在 `core/browser_pool.py` 中添加 User-Agent 池
+  - [ ] 实现随机选择 User-Agent 的逻辑
+  - [ ] 支持配置自定义 User-Agent 列表
+- [ ] 实现随机延迟机制
+  - [ ] 在 `platforms/weixin_searcher.py` 的 `search()` 方法中添加延迟
+  - [ ] 使用随机延迟（例如 1-3 秒）避免请求过于频繁
+  - [ ] 支持配置延迟范围
+- [ ] 实现请求频率控制
+  - [ ] 创建 `core/rate_limiter.py` 限流器
+  - [ ] 实现基于时间的请求频率限制（例如每分钟最多 N 次）
+  - [ ] 在 `core/search_manager.py` 中集成限流器
+  - [ ] 支持配置请求频率限制参数
+- [ ] 添加反爬虫检测和响应
+  - [ ] 检测验证码页面
+  - [ ] 检测 IP 封禁提示
+  - [ ] 实现自动延迟和重试机制
+  - [ ] 记录反爬虫事件到日志
+
 **阶段4: 压力测试 (2小时)**
 - [ ] 创建 `tests/load/test_concurrent.py`
 - [ ] 测试并发 5 个搜索
@@ -1037,6 +1059,7 @@ class WeixinSearcher(BasePlatformSearcher):
 - [ ] 添加错误处理文档
 - [ ] 添加故障排除指南
 - [ ] 添加性能调优指南
+- [ ] 添加反爬虫应对策略配置说明
 
 #### ⚠️ 风险预警
 
@@ -1064,6 +1087,15 @@ class WeixinSearcher(BasePlatformSearcher):
   - 实现请求队列
   - 添加并发限制
 
+**风险4: 反爬虫检测触发**
+- **触发条件**: 请求频率过高或行为异常
+- **影响**: IP被封或返回验证码
+- **应对策略**: 
+  - 实现 User-Agent 轮换（阶段3.5）
+  - 实现随机延迟（阶段3.5）
+  - 实现请求频率控制（阶段3.5）
+  - 检测并响应反爬虫事件（阶段3.5）
+
 **验收标准**:
 
 - ✅ **单次搜索成功率 > 95%**
@@ -1089,6 +1121,12 @@ class WeixinSearcher(BasePlatformSearcher):
 - ✅ **压力测试通过**
   - 测量命令: `pytest tests/load/ -v`
   - 预期结果: 无失败、无内存泄漏
+
+- ✅ **反爬虫应对策略生效**
+  - 测量方法: 检查 User-Agent 是否轮换
+  - 测量方法: 验证请求之间有延迟
+  - 测量方法: 验证请求频率被限制
+  - 预期结果: 所有策略正常工作，无 IP 封禁
 
 **依赖**: Iteration 5
 
