@@ -1,0 +1,4 @@
+# Production dependencies
+playwright>=1.40.0
+pyyaml>=6.0
+
