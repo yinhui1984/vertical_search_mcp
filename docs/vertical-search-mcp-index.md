@@ -133,10 +133,6 @@
 
 ## 🔗 相关资源
 
-### 原项目
-- GitHub: weixin-search-playwright-mcp
-- 位置: `/Users/z/Downloads/weixin-search-playwright-mcp`
-
 ### 本项目
 - 设计文档: `vertical-search-mcp-design.md`
 - 快速上手: `vertical-search-mcp-quickstart.md`
