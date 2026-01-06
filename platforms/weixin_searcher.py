@@ -12,7 +12,12 @@ from typing import List, Dict, Optional, Any
 from urllib.parse import urlencode
 from core.base_searcher import BasePlatformSearcher
 from core.browser_pool import BrowserPool
+from core.anti_crawler_detector import AntiCrawlerDetector, DetectionType
+from core.config_loader import load_anti_crawler_config
+from core.logger import get_logger
 from playwright.async_api import ElementHandle
+
+logger = get_logger("vertical_search.weixin_searcher")
 
 
 class WeixinSearcher(BasePlatformSearcher):
@@ -33,6 +38,14 @@ class WeixinSearcher(BasePlatformSearcher):
         super().__init__(browser_pool)
         self.config = self._load_config()
         self.base_url = self.config.get("base_url", "https://weixin.sogou.com/weixin")
+
+        # Initialize anti-crawler detector
+        try:
+            anti_crawler_config = load_anti_crawler_config()
+            self.detector = AntiCrawlerDetector(anti_crawler_config)
+        except Exception as e:
+            logger.warning(f"Failed to load anti-crawler config: {e}, continuing without detection")
+            self.detector = AntiCrawlerDetector({})
 
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -125,6 +138,24 @@ class WeixinSearcher(BasePlatformSearcher):
             # Use domcontentloaded for faster initial load, then wait for specific elements
             # This is faster than networkidle which waits for all network activity to stop
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+            # Check for anti-crawler responses
+            detection = await self.detector.detect(page, platform="weixin")
+            if detection.detected:
+                logger.warning(
+                    f"Anti-crawler detected: {detection.detection_type.value}, "
+                    f"confidence: {detection.confidence}, details: {detection.details}"
+                )
+
+                if detection.detection_type == DetectionType.LOGIN_WALL:
+                    logger.warning("Login wall detected, returning empty results")
+                    return []
+                elif detection.detection_type == DetectionType.CAPTCHA:
+                    logger.warning("CAPTCHA detected, returning empty results")
+                    return []
+                elif detection.detection_type == DetectionType.IP_BAN:
+                    logger.error("IP ban detected, returning empty results")
+                    return []
 
             # Wait for search results to load
             # Try multiple selectors in order with shorter timeout per selector

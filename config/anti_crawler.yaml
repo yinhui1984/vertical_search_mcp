@@ -1,0 +1,87 @@
+# Anti-crawler configuration for vertical search MCP
+# This file configures anti-crawler protection strategies
+
+global:
+  # Global rate limiting
+  rate_limit:
+    enabled: true
+    max_requests_per_minute: 30
+    algorithm: "token_bucket"  # token_bucket | sliding_window | fixed_window
+    on_limit_exceeded: "delay"  # reject | delay | queue
+  
+  # Global delay settings
+  delay:
+    enabled: true
+    min_delay_ms: 1000
+    max_delay_ms: 3000
+    apply_to: "between_requests"  # before_request | after_request | between_requests
+
+# User-Agent rotation
+user_agent:
+  enabled: true
+  rotation_strategy: "per_session"  # per_request | per_session | per_platform
+  pool:
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+
+# Platform-specific overrides
+platforms:
+  weixin:
+    rate_limit:
+      max_requests_per_minute: 20
+    delay:
+      min_delay_ms: 1500
+      max_delay_ms: 4000
+    login_wall_detection:
+      enabled: true
+      url_patterns:
+        - "unhuman"
+        - "need_login"
+        - "antispider"
+      content_patterns:
+        - "请输入验证码"
+        - "登录后查看"
+  
+  zhihu:
+    rate_limit:
+      max_requests_per_minute: 15
+    delay:
+      min_delay_ms: 2000
+      max_delay_ms: 5000
+    login_wall_detection:
+      enabled: true
+      url_patterns:
+        - "unhuman"
+        - "need_login"
+      content_patterns:
+        - "请先登录"
+        - "知乎验证"
+
+# Anti-crawler detection responses
+detection:
+  captcha:
+    patterns:
+      - "验证码"
+      - "captcha"
+      - "verify"
+    response: "delay_and_retry"
+    max_retries: 2
+    retry_delay_ms: 5000
+  
+  ip_ban:
+    patterns:
+      - "访问频繁"
+      - "IP被封"
+      - "请稍后再试"
+    response: "fail_gracefully"
+  
+  rate_limit:
+    patterns:
+      - "请求过于频繁"
+      - "too many requests"
+    response: "exponential_backoff"
+    initial_delay_ms: 2000
+    max_delay_ms: 30000
+

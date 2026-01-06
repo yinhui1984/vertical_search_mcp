@@ -13,7 +13,11 @@ from typing import List, Dict, Optional, Any
 from urllib.parse import urlencode
 from core.base_searcher import BasePlatformSearcher
 from core.browser_pool import BrowserPool
+from core.anti_crawler_detector import AntiCrawlerDetector, DetectionType
+from core.config_loader import load_anti_crawler_config
 from playwright.async_api import ElementHandle
+
+logger = get_logger("vertical_search.zhihu_searcher")
 
 
 class ZhihuSearcher(BasePlatformSearcher):
@@ -34,6 +38,14 @@ class ZhihuSearcher(BasePlatformSearcher):
         super().__init__(browser_pool)
         self.config = self._load_config()
         self.base_url = self.config.get("base_url", "https://zhihu.sogou.com/zhihu")
+
+        # Initialize anti-crawler detector
+        try:
+            anti_crawler_config = load_anti_crawler_config()
+            self.detector = AntiCrawlerDetector(anti_crawler_config)
+        except Exception as e:
+            logger.warning(f"Failed to load anti-crawler config: {e}, continuing without detection")
+            self.detector = AntiCrawlerDetector({})
 
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -124,6 +136,24 @@ class ZhihuSearcher(BasePlatformSearcher):
         try:
             # Navigate to search page
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+            # Check for anti-crawler responses
+            detection = await self.detector.detect(page, platform="zhihu")
+            if detection.detected:
+                logger.warning(
+                    f"Anti-crawler detected: {detection.detection_type.value}, "
+                    f"confidence: {detection.confidence}, details: {detection.details}"
+                )
+
+                if detection.detection_type == DetectionType.LOGIN_WALL:
+                    logger.warning("Login wall detected, returning empty results")
+                    return []
+                elif detection.detection_type == DetectionType.CAPTCHA:
+                    logger.warning("CAPTCHA detected, returning empty results")
+                    return []
+                elif detection.detection_type == DetectionType.IP_BAN:
+                    logger.error("IP ban detected, returning empty results")
+                    return []
 
             # Wait for search results to load
             selectors = self.config.get("selectors", {}).get("article_list", [])

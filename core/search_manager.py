@@ -5,6 +5,7 @@ This module implements the unified search manager that handles:
 - Platform registration and routing
 - Cache management
 - Error handling and logging
+- Anti-crawler protection (rate limiting, delays, detection)
 """
 
 from typing import Dict, List, Optional
@@ -12,6 +13,10 @@ from core.browser_pool import BrowserPool
 from core.cache import SearchCache
 from core.base_searcher import BasePlatformSearcher
 from core.logger import get_logger
+from core.rate_limiter import RateLimitManager
+from core.delay_manager import DelayManager
+from core.config_loader import load_anti_crawler_config
+from core.exceptions import RateLimitExceeded
 
 
 class UnifiedSearchManager:
@@ -33,6 +38,23 @@ class UnifiedSearchManager:
         self.cache = SearchCache(ttl=300)
         self.searchers: Dict[str, BasePlatformSearcher] = {}
         self.logger = get_logger("vertical_search.search_manager")
+
+        # Load anti-crawler configuration
+        try:
+            self._anti_crawler_config = load_anti_crawler_config()
+            # Initialize rate limiter
+            self.rate_limiter = RateLimitManager(self._anti_crawler_config)
+            # Initialize delay manager
+            self.delay_manager = DelayManager(self._anti_crawler_config)
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to load anti-crawler config: {e}, "
+                f"continuing without anti-crawler protection"
+            )
+            self._anti_crawler_config = {}
+            # Create dummy components that don't do anything
+            self.rate_limiter = RateLimitManager({})
+            self.delay_manager = DelayManager({})
 
     def register_platform(self, platform: str, searcher: BasePlatformSearcher) -> None:
         """
@@ -90,7 +112,15 @@ class UnifiedSearchManager:
         if max_results > MAX_RESULTS_LIMIT:
             raise ValueError(f"max_results cannot exceed {MAX_RESULTS_LIMIT}")
 
-        # Check cache first
+        # Check rate limit first
+        try:
+            await self.rate_limiter.acquire(platform)
+        except RateLimitExceeded:
+            self.logger.warning(f"Rate limit exceeded for {platform}:{query}")
+            raise
+
+        # Check cache first (skip delay for cache hits)
+        cache_key = None
         if use_cache:
             cache_key = self.cache.get_cache_key(
                 platform=platform,
@@ -103,6 +133,9 @@ class UnifiedSearchManager:
                 # Type assertion: cached value should be List[Dict[str, str]]
                 # Cache stores Any type, but we know it's List[Dict[str, str]] here
                 return cached  # type: ignore[no-any-return]
+
+        # Apply anti-crawler delay (only for non-cached requests)
+        await self.delay_manager.apply_delay(platform, skip_if_cached=False)
 
         # Route to corresponding platform
         if platform not in self.searchers:
@@ -123,7 +156,7 @@ class UnifiedSearchManager:
             )
 
             # Cache results
-            if use_cache:
+            if use_cache and cache_key is not None:
                 self.cache.set(cache_key, results)
                 self.logger.debug(f"Cached results for {platform}:{query}")
 

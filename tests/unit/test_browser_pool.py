@@ -47,7 +47,7 @@ class TestBrowserPool:
 
         # Browser should be initialized
         assert pool.browser is not None
-        assert pool.context is not None
+        assert len(pool.contexts) > 0
         assert pool.playwright is not None
 
         # Clean up
@@ -76,6 +76,49 @@ class TestBrowserPool:
             assert time2 < 1.0, f"Page creation took {time2:.2f}s, expected < 1.0s"
 
             await page2.close()
+        finally:
+            await pool.close()
+
+    @pytest.mark.asyncio
+    async def test_context_pool_creation(self) -> None:
+        """Test that context pool is created with multiple contexts."""
+        BrowserPool._instance = None
+        pool = BrowserPool()
+
+        try:
+            await pool.init()
+
+            # Should have multiple contexts (at least 1, up to 4)
+            assert len(pool.contexts) > 0
+            assert len(pool.contexts) <= 4
+
+            # Each context should be valid
+            for context in pool.contexts:
+                assert context is not None
+        finally:
+            await pool.close()
+
+    @pytest.mark.asyncio
+    async def test_round_robin_context_selection(self) -> None:
+        """Test that pages are created from different contexts (round-robin)."""
+        BrowserPool._instance = None
+        pool = BrowserPool()
+
+        try:
+            await pool.init()
+
+            # Create multiple pages
+            pages = []
+            for _ in range(len(pool.contexts) * 2):
+                page = await pool.get_page()
+                pages.append(page)
+
+            # All pages should be valid
+            assert len(pages) == len(pool.contexts) * 2
+
+            # Clean up
+            for page in pages:
+                await page.close()
         finally:
             await pool.close()
 
@@ -138,7 +181,7 @@ class TestBrowserPool:
         # get_page() should auto-initialize
         page = await pool.get_page()
         assert pool.browser is not None
-        assert pool.context is not None
+        assert len(pool.contexts) > 0
 
         await page.close()
         await pool.close()
@@ -151,14 +194,14 @@ class TestBrowserPool:
 
         await pool.init()
         assert pool.browser is not None
-        assert pool.context is not None
+        assert len(pool.contexts) > 0
         assert pool.playwright is not None
 
         await pool.close()
 
         # All resources should be cleaned up
         assert pool.browser is None
-        assert pool.context is None
+        assert len(pool.contexts) == 0
         assert pool.playwright is None
 
         # Singleton should be reset
