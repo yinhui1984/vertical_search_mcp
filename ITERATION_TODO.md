@@ -1476,7 +1476,229 @@ class WeixinSearcher(BasePlatformSearcher):
 
 ---
 
-### Iteration 9: 错误处理、性能监控与代码质量 (1.5 天)
+### Iteration 9: 文章内容获取与智能压缩 (1.5 天)
+
+**目标**: 实现文章内容获取功能，使用 DeepSeek API 进行智能压缩，确保返回内容在 AI 上下文长度限制内
+
+**背景**: 
+- Claude 上下文长度：200K-1M tokens（取决于版本和计划）
+- DeepSeek V3.1 上下文长度：128K tokens
+- 需要支持返回文章完整内容，但需要智能压缩以避免超出上下文限制
+
+#### 执行阶段（按顺序）
+
+**阶段1: 添加 include_content 参数 (1小时)**
+- [ ] 在 `mcp_server.py` 的 `handle_list_tools()` 中添加 `include_content` 参数
+  - [ ] 参数类型：boolean，默认值：false
+  - [ ] 参数描述：是否包含文章完整内容
+- [ ] 在 `_handle_search_vertical()` 中处理 `include_content` 参数
+- [ ] 更新工具 schema 文档
+
+**阶段2: 文章内容获取实现 (3小时)**
+- [ ] 创建 `core/content_fetcher.py` 模块
+- [ ] 实现 `ContentFetcher` 类
+  - [ ] 实现 `fetch_article_content(url: str) -> str` 方法
+  - [ ] 使用 BrowserPool 获取页面
+  - [ ] 提取文章正文内容（去除导航、广告等）
+  - [ ] 处理不同平台的内容提取（微信、知乎）
+  - [ ] 添加超时处理（默认 10 秒）
+  - [ ] 添加错误处理和降级策略
+- [ ] 在 `BasePlatformSearcher` 中添加内容提取方法
+  - [ ] 实现平台特定的内容选择器配置
+  - [ ] 在 `config/platforms.yaml` 中添加内容选择器配置
+- [ ] 实现并发获取（使用 asyncio.gather）
+  - [ ] 支持批量获取多篇文章内容
+  - [ ] 设置并发限制（最多 5 个并发）
+
+**阶段3: Token 估算实现 (1小时)**
+- [ ] 创建 `core/token_estimator.py` 模块
+- [ ] 实现 `TokenEstimator` 类
+  - [ ] 实现简单的 token 估算方法（中文约 1.5 字符/token，英文约 4 字符/token）
+  - [ ] 或集成 `tiktoken` 库进行准确估算（可选）
+  - [ ] 实现 `estimate_tokens(text: str) -> int` 方法
+  - [ ] 实现 `estimate_total_tokens(results: List[Dict]) -> int` 方法
+- [ ] 添加配置项：压缩阈值
+  - [ ] 单篇文章压缩阈值：3000 tokens
+  - [ ] 总内容压缩阈值：50000 tokens（为 Claude 200K 留余量）
+  - [ ] 最终压缩阈值：100000 tokens
+
+**阶段4: DeepSeek API 集成 (3小时)**
+- [ ] 添加依赖：`openai>=1.0.0`（DeepSeek 兼容 OpenAI API）或 `tiktoken>=0.5.0`（可选）
+- [ ] 创建 `core/content_compressor.py` 模块
+- [ ] 实现 `ContentCompressor` 类
+  - [ ] 初始化 DeepSeek API 客户端
+  - [ ] 从环境变量或配置文件读取 API Key
+  - [ ] 实现 `compress_content(content: str, max_tokens: int) -> str` 方法
+  - [ ] 实现 `compress_article(article: Dict, max_tokens: int) -> Dict` 方法
+  - [ ] 实现 `compress_batch(articles: List[Dict], max_total_tokens: int) -> List[Dict]` 方法
+  - [ ] 添加 API 调用错误处理
+  - [ ] 添加超时处理（默认 30 秒）
+  - [ ] 实现重试机制（最多 2 次）
+- [ ] 实现压缩策略
+  - [ ] 单篇文章压缩：提取关键信息，保留核心内容
+  - [ ] 批量压缩：多篇文章合并压缩，保留相关性
+  - [ ] 最终压缩：如果还太大，进行摘要式压缩
+- [ ] 添加压缩提示词模板
+  - [ ] 单篇压缩提示词：保留核心观点和关键信息
+  - [ ] 批量压缩提示词：保留多篇文章的相关性和关键信息
+
+**阶段5: 智能压缩逻辑 (2小时)**
+- [ ] 在 `mcp_server.py` 中集成内容获取和压缩
+- [ ] 实现智能压缩判断逻辑
+  - [ ] 如果 `include_content=False`，直接返回（不获取内容）
+  - [ ] 如果 `include_content=True`：
+    1. 获取所有文章内容
+    2. 估算总 token 数
+    3. 如果总 token < 50000，直接返回
+    4. 如果总 token >= 50000 且 < 100000，进行批量压缩
+    5. 如果总 token >= 100000，进行最终压缩
+    6. 如果压缩后仍 > 100000，进行截断或摘要
+- [ ] 实现单篇文章压缩判断
+  - [ ] 如果单篇文章 > 3000 tokens，先压缩单篇
+  - [ ] 然后再判断总 token 数
+- [ ] 添加压缩日志记录
+  - [ ] 记录压缩前 token 数
+  - [ ] 记录压缩后 token 数
+  - [ ] 记录压缩时间
+
+**阶段6: 缓存和性能优化 (1小时)**
+- [ ] 实现内容缓存机制
+  - [ ] 缓存已获取的文章内容（避免重复获取）
+  - [ ] 缓存已压缩的内容（避免重复压缩）
+  - [ ] 设置缓存 TTL（内容缓存：1 小时，压缩缓存：24 小时）
+- [ ] 优化性能
+  - [ ] 并发获取文章内容（最多 5 个并发）
+  - [ ] 批量压缩（减少 API 调用次数）
+  - [ ] 添加压缩结果缓存
+
+**阶段7: 配置和错误处理 (1小时)**
+- [ ] 添加配置项
+  - [ ] DeepSeek API Key：环境变量 `APIKEY_DEEPSEEK`
+  - [ ] DeepSeek API Base URL：默认 `https://api.deepseek.com`
+  - [ ] 压缩阈值配置：可在配置文件中调整
+  - [ ] 是否启用压缩：可配置开关
+- [ ] 实现错误处理和降级策略
+  - [ ] API 调用失败时：返回原始内容或仅返回摘要
+  - [ ] 超时处理：设置合理的超时时间
+  - [ ] 网络错误：重试或降级
+  - [ ] API 限流：等待后重试
+
+**阶段8: 测试验证 (2小时)**
+- [ ] 创建 `tests/integration/test_content_fetcher.py`
+  - [ ] 测试文章内容获取
+  - [ ] 测试不同平台的内容提取
+  - [ ] 测试错误处理
+- [ ] 创建 `tests/integration/test_content_compressor.py`
+  - [ ] 测试单篇文章压缩
+  - [ ] 测试批量压缩
+  - [ ] 测试压缩阈值判断
+  - [ ] 测试 API 错误处理
+- [ ] 创建 `tests/integration/test_mcp_content.py`
+  - [ ] 测试 `include_content=False` 场景
+  - [ ] 测试 `include_content=True` 场景
+  - [ ] 测试压缩逻辑
+  - [ ] 测试返回格式
+- [ ] 性能测试
+  - [ ] 测试内容获取时间
+  - [ ] 测试压缩时间
+  - [ ] 测试总响应时间
+
+#### ⚠️ 风险预警
+
+**风险1: DeepSeek API 调用成本**
+- **触发条件**: 频繁调用 DeepSeek API 进行压缩
+- **影响**: API 调用成本增加
+- **应对策略**: 
+  - 实现内容缓存（阶段6）
+  - 实现压缩结果缓存（阶段6）
+  - 只在必要时压缩（智能判断）
+  - 批量压缩减少调用次数
+
+**风险2: 内容获取性能影响**
+- **触发条件**: 30 篇文章需要逐个获取内容
+- **影响**: 搜索响应时间显著增加（可能从 3 秒增加到 30+ 秒）
+- **应对策略**: 
+  - 并发获取内容（最多 5 个并发）
+  - 设置合理的超时时间
+  - 添加进度日志
+  - 考虑异步处理（后台任务）
+
+**风险3: 压缩质量下降**
+- **触发条件**: 多次压缩或压缩比例过大
+- **影响**: 信息丢失，内容质量下降
+- **应对策略**: 
+  - 优化压缩提示词
+  - 设置合理的压缩阈值
+  - 避免过度压缩
+  - 保留关键信息
+
+**风险4: API 调用失败**
+- **触发条件**: DeepSeek API 不可用或限流
+- **影响**: 无法压缩内容，功能失效
+- **应对策略**: 
+  - 实现降级策略（返回原始内容或摘要）
+  - 添加重试机制
+  - 记录错误日志
+  - 提供配置开关
+
+**风险5: Token 估算不准确**
+- **触发条件**: 简单估算方法误差较大
+- **影响**: 压缩判断不准确，可能超出限制
+- **应对策略**: 
+  - 使用保守的估算方法（高估而非低估）
+  - 考虑集成 `tiktoken` 库提高准确性
+  - 添加安全余量（压缩阈值设置较低）
+
+**验收标准**:
+
+- ✅ **include_content 参数正常工作**
+  - 测量命令: `pytest tests/integration/test_mcp_content.py::test_include_content_false -v`
+  - 预期结果: `include_content=False` 时，不获取内容，返回原有格式
+  - 测量命令: `pytest tests/integration/test_mcp_content.py::test_include_content_true -v`
+  - 预期结果: `include_content=True` 时，返回包含文章内容的结果
+
+- ✅ **文章内容获取成功率 > 90%**
+  - 测量命令: `pytest tests/integration/test_content_fetcher.py::test_fetch_success_rate -v`
+  - 预期结果: 成功率 >= 90%
+
+- ✅ **内容获取性能达标**
+  - 测量命令: `pytest tests/integration/test_content_fetcher.py::test_fetch_performance -v`
+  - 预期结果: 单篇文章内容获取时间 < 5 秒，10 篇文章并发获取时间 < 15 秒
+
+- ✅ **压缩功能正常工作**
+  - 测量命令: `pytest tests/integration/test_content_compressor.py::test_compress_single -v`
+  - 预期结果: 压缩后内容长度减少，但保留核心信息
+
+- ✅ **智能压缩判断正确**
+  - 测量命令: `pytest tests/integration/test_mcp_content.py::test_compress_logic -v`
+  - 预期结果: 根据 token 数正确判断是否需要压缩
+
+- ✅ **压缩后内容在限制内**
+  - 测量方法: 检查压缩后的总 token 数
+  - 预期结果: 压缩后总 token < 100000（为 Claude 200K 留余量）
+
+- ✅ **错误处理和降级策略正常**
+  - 测量命令: `pytest tests/integration/test_content_compressor.py::test_error_handling -v`
+  - 预期结果: API 失败时能降级处理，不导致功能完全失效
+
+- ✅ **缓存机制生效**
+  - 测量命令: `pytest tests/integration/test_content_fetcher.py::test_cache_effectiveness -v`
+  - 预期结果: 相同内容第二次获取时间 < 0.1 秒
+
+- ✅ **所有测试通过**
+  - 测量命令: `pytest tests/integration/test_content_*.py tests/integration/test_mcp_content.py -v`
+  - 预期结果: 无失败、无跳过
+
+**依赖**: Iteration 8
+
+**技术参考**:
+- DeepSeek API: https://api-docs.deepseek.com/
+- OpenAI Python SDK: https://github.com/openai/openai-python
+- tiktoken: https://github.com/openai/tiktoken
+
+---
+
+### Iteration 10: 错误处理、性能监控与代码质量 (1.5 天)
 
 **目标**: 完善错误处理、性能监控、压力测试，确保代码质量和测试覆盖率
 
@@ -1625,7 +1847,16 @@ class WeixinSearcher(BasePlatformSearcher):
   - 测量方法: 检查 `.github/workflows/ci.yml` 文件
   - 预期结果: CI 配置完整，可正常运行
 
-**依赖**: Iteration 8
+**依赖**: Iteration 9
+
+**完成时间**: 待定
+
+**额外完成**:
+- [ ] 所有代码包含完整的类型注解和文档字符串
+- [ ] 代码质量符合项目规范（无 lint 错误，类型检查通过）
+- [ ] 实现完整的错误处理和降级策略
+- [ ] 实现缓存机制优化性能
+- [ ] 所有测试通过
 
 ---
 
@@ -1642,9 +1873,10 @@ class WeixinSearcher(BasePlatformSearcher):
 | Iteration 6 | 真实链接获取 | 1-1.5 天 | P0 | ✅ 已完成 (2026-01-06) |
 | Iteration 7 | 日志系统 | 0.5 天 | P1 | ✅ 已完成 (2026-01-06) |
 | Iteration 8 | 反爬虫应对策略 | 0.5 天 | P1 | ✅ 已完成 (2026-01-06) |
-| Iteration 9 | 错误处理、性能监控与代码质量 | 1.5 天 | P1 | ⬜ 未开始 |
+| Iteration 9 | 文章内容获取与智能压缩 | 1.5 天 | P1 | ⬜ 未开始 |
+| Iteration 10 | 错误处理、性能监控与代码质量 | 1.5 天 | P1 | ⬜ 未开始 |
 
-**总计**: 8-10 天
+**总计**: 9.5-11.5 天
 
 ---
 
@@ -1665,14 +1897,17 @@ class WeixinSearcher(BasePlatformSearcher):
 - ✅ URL 解析性能达标（微信和知乎链接解析成功）
 - ✅ 所有类型检查和代码质量检查通过
 
-### Milestone 4: 生产就绪 (Iteration 7-9)
+### Milestone 4: 功能增强 (Iteration 7-9)
 - ✅ 日志系统完善（Iteration 7）
 - ✅ 反爬虫应对策略生效（包括登录墙处理）（Iteration 8）
-- ⬜ 错误处理和重试机制完善（Iteration 9）
-- ⬜ 性能监控系统建立（Iteration 9）
-- ⬜ 稳定性达到生产级（Iteration 9）
-- ⬜ 测试覆盖率达标（Iteration 9）
-- ⬜ 代码质量达标（Iteration 9）
+- ⬜ 文章内容获取与智能压缩功能（Iteration 9）
+
+### Milestone 5: 生产就绪 (Iteration 10)
+- ⬜ 错误处理和重试机制完善（Iteration 10）
+- ⬜ 性能监控系统建立（Iteration 10）
+- ⬜ 稳定性达到生产级（Iteration 10）
+- ⬜ 测试覆盖率达标（Iteration 10）
+- ⬜ 代码质量达标（Iteration 10）
 
 ---
 
