@@ -6,6 +6,7 @@ It inherits from BasePlatformSearcher and implements platform-specific search lo
 """
 
 import os
+import asyncio
 import logging
 import yaml
 from typing import List, Dict, Optional, Any
@@ -155,14 +156,139 @@ class ZhihuSearcher(BasePlatformSearcher):
             else:
                 results = await self._parse_results(page, max_results)
 
-            # Return results with Sogou redirect links (no URL resolution)
-            # URL resolution will be implemented in a future iteration
+            # Resolve Sogou redirect links to real URLs by clicking links on search results page
+            # This is more reliable than accessing links directly (which may expire)
+            target_domains = ["zhihu.com"]
+            redirect_count = sum(1 for r in results if "sogou.com/link" in r.get("url", ""))
+
+            if redirect_count > 0:
+                self.logger.info(
+                    f"Resolving {redirect_count} Sogou redirect URLs by clicking links on search page"
+                )
+
+                # Get all redirect URLs and their indices
+                redirect_urls = [r["url"] for r in results if "sogou.com/link" in r.get("url", "")]
+                redirect_indices = [
+                    i for i, r in enumerate(results) if "sogou.com/link" in r.get("url", "")
+                ]
+
+                # Get all link elements from search results page
+                selectors = self.config.get("selectors", {}).get("article_list", [])
+                all_link_elements = []
+                for selector in selectors:
+                    try:
+                        elements = await page.query_selector_all(selector)
+                        if elements:
+                            for element in elements:
+                                link_elem = await element.query_selector("a")
+                                if link_elem:
+                                    all_link_elements.append(link_elem)
+                            break
+                    except Exception:
+                        continue
+
+                # Resolve URLs by clicking links on the search results page
+                resolved_urls: List[Optional[str]] = []
+                for idx, result_idx in enumerate(redirect_indices):
+                    try:
+                        self.logger.debug(
+                            f"Resolving URL {idx + 1}/{len(redirect_indices)}: {redirect_urls[idx][:80]}..."
+                        )
+
+                        # Use the link element at the same index as the result
+                        if result_idx < len(all_link_elements):
+                            link_element = all_link_elements[result_idx]
+
+                            # Click the link and wait for new page/tab to open
+                            try:
+                                async with page.context.expect_page(timeout=8000) as new_page_info:
+                                    await link_element.click(
+                                        modifiers=["Meta"]
+                                    )  # Cmd+Click to open in new tab
+
+                                new_page = await new_page_info.value
+
+                                # Wait for page to navigate away from about:blank
+                                # Try multiple wait strategies to ensure we get the final URL
+                                try:
+                                    # Wait for navigation to complete
+                                    await new_page.wait_for_load_state("networkidle", timeout=15000)
+                                except Exception:
+                                    # If networkidle times out, try domcontentloaded
+                                    try:
+                                        await new_page.wait_for_load_state(
+                                            "domcontentloaded", timeout=10000
+                                        )
+                                    except Exception:
+                                        # If that also fails, wait a bit and check URL
+                                        await asyncio.sleep(2)
+
+                                # Wait for URL to change from about:blank
+                                max_wait_attempts = 10
+                                wait_interval = 0.5
+                                new_page_url = new_page.url
+                                for attempt in range(max_wait_attempts):
+                                    if new_page_url != "about:blank" and new_page_url:
+                                        break
+                                    await asyncio.sleep(wait_interval)
+                                    new_page_url = new_page.url
+
+                                self.logger.info(f"New page opened with URL: {new_page_url}")
+
+                                # Check if it's a target domain
+                                if (
+                                    any(domain in new_page_url for domain in target_domains)
+                                    and "sogou.com" not in new_page_url
+                                ):
+                                    resolved_urls.append(new_page_url)
+                                    self.logger.info(
+                                        f"Successfully resolved URL {idx + 1}: {new_page_url}"
+                                    )
+                                    await new_page.close()
+                                else:
+                                    self.logger.warning(
+                                        f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
+                                    )
+                                    resolved_urls.append(None)
+                                    await new_page.close()
+                            except Exception as e:
+                                self.logger.debug(f"Error clicking link {idx + 1}: {e}")
+                                resolved_urls.append(None)
+                        else:
+                            self.logger.debug(
+                                f"Could not find link element for result index {result_idx}"
+                            )
+                            resolved_urls.append(None)
+
+                        # Small delay between clicks
+                        if idx < len(redirect_urls) - 1:
+                            await asyncio.sleep(0.5)
+
+                    except Exception as e:
+                        self.logger.warning(f"Error resolving URL {idx + 1}: {e}")
+                        resolved_urls.append(None)
+
+                # Update results with resolved URLs
+                for i, resolved_url in zip(redirect_indices, resolved_urls):
+                    if resolved_url:
+                        results[i]["url"] = resolved_url
+                        self.logger.debug(f"Updated result {i} with resolved URL")
+
+            # Close the search page
+            await page.close()
+
             return results
 
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Search error: {e}")
             return []
         finally:
-            await page.close()
+            # Ensure page is closed (may already be closed in try block)
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
 
     async def _extract_item(self, element: ElementHandle, index: int) -> Optional[Dict[str, str]]:
         """

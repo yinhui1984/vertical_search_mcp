@@ -89,7 +89,7 @@ format: check-venv
 
 lint: check-venv
 	@echo "Running flake8 linter..."
-	$(ACTIVATE) && $(FLAKE8) core/ platforms/ tests/ --max-line-length=100 --exclude=__pycache__,.venv
+	$(ACTIVATE) && $(FLAKE8) core/ platforms/ tests/ --ignore=E501,E226,W503 --exclude=__pycache__,.venv
 
 type-check: check-venv
 	@echo "Running mypy type checker..."

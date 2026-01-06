@@ -9,6 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Any
 from core.browser_pool import BrowserPool
+from core.url_resolver import URLResolver
 from playwright.async_api import Page, ElementHandle
 import re
 import urllib.request
@@ -350,30 +351,59 @@ class BasePlatformSearcher(ABC):
                     return None
 
                 # Method 1: Extract from JavaScript window.location.replace
-                js_pattern = r'window\.location\.replace\("([^"]+)"\)'
-                js_match = re.search(js_pattern, html)
-                if js_match:
-                    real_url = js_match.group(1)
-                    # Validate it contains target domain
-                    if any(domain in real_url for domain in target_domains):
-                        self.logger.debug(f"Extracted final URL from JavaScript: {real_url}")
-                        return real_url
-                    else:
-                        self.logger.debug(f"Extracted URL doesn't match target domains: {real_url}")
+                js_patterns = [
+                    r'window\.location\.replace\("([^"]+)"\)',
+                    r'window\.location\s*=\s*"([^"]+)"',
+                    r'location\.replace\("([^"]+)"\)',
+                    r'location\.href\s*=\s*"([^"]+)"',
+                ]
+                for js_pattern in js_patterns:
+                    js_match = re.search(js_pattern, html)
+                    if js_match:
+                        real_url = js_match.group(1)
+                        # Decode URL if needed
+                        if "\\u" in real_url:
+                            real_url = real_url.encode().decode("unicode_escape")
+                        # Validate it contains target domain
+                        if any(domain in real_url for domain in target_domains):
+                            self.logger.debug(f"Extracted final URL from JavaScript: {real_url}")
+                            return real_url
+                        else:
+                            self.logger.debug(
+                                f"Extracted URL doesn't match target domains: {real_url}"
+                            )
 
                 # Method 2: Extract from Meta Refresh tag
-                meta_pattern = r"URL=['\"]([^'\"]+)['\"]"
-                meta_match = re.search(meta_pattern, html, re.IGNORECASE)
-                if meta_match:
-                    real_url = meta_match.group(1)
-                    # Validate it contains target domain
-                    if any(domain in real_url for domain in target_domains):
-                        self.logger.debug(f"Extracted final URL from Meta Refresh: {real_url}")
-                        return real_url
-                    else:
-                        self.logger.debug(
-                            f"Extracted URL (meta) doesn't match target domains: {real_url}"
-                        )
+                meta_patterns = [
+                    r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+url=["\']([^"\']+)["\']',
+                    r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^;]+;\s*url=["\']([^"\']+)["\']',
+                    r"URL=['\"]([^'\"]+)['\"]",
+                ]
+                for meta_pattern in meta_patterns:
+                    meta_match = re.search(meta_pattern, html, re.IGNORECASE)
+                    if meta_match:
+                        real_url = meta_match.group(1)
+                        # Validate it contains target domain
+                        if any(domain in real_url for domain in target_domains):
+                            self.logger.debug(f"Extracted final URL from Meta Refresh: {real_url}")
+                            return real_url
+                        else:
+                            self.logger.debug(
+                                f"Extracted URL (meta) doesn't match target domains: {real_url}"
+                            )
+
+                # Method 3: Try to find direct links in HTML
+                link_patterns = [
+                    r'<a[^>]+href=["\']([^"\']*mp\.weixin\.qq\.com[^"\']*)["\']',
+                    r'<a[^>]+href=["\']([^"\']*zhihu\.com[^"\']*)["\']',
+                ]
+                for link_pattern in link_patterns:
+                    link_match = re.search(link_pattern, html, re.IGNORECASE)
+                    if link_match:
+                        real_url = link_match.group(1)
+                        if any(domain in real_url for domain in target_domains):
+                            self.logger.debug(f"Extracted final URL from link: {real_url}")
+                            return real_url
 
                 # Log HTML preview for debugging
                 html_preview = html[:500] if len(html) < 500 else html[:500] + "..."
@@ -403,10 +433,12 @@ class BasePlatformSearcher(ABC):
         self, results: List[Dict[str, str]], target_domains: List[str]
     ) -> List[Dict[str, str]]:
         """
-        Resolve final URLs from Sogou redirect links in batch.
+        Resolve final URLs from Sogou redirect links in batch using CDP.
 
-        This method processes all results in a single page to improve performance.
-        It follows redirects to get the final article URLs.
+        This method uses Chrome DevTools Protocol (CDP) to track network traffic
+        and redirects, extracting the final target URLs from Sogou redirect links.
+
+        If CDP resolution fails, it falls back to the HTTP-based method.
 
         Args:
             results: List of result dictionaries with URLs
@@ -420,7 +452,6 @@ class BasePlatformSearcher(ABC):
             return results
 
         # Filter results that need URL resolution (Sogou redirect links)
-        # Note: Sogou redirect links use www.sogou.com/link for both Weixin and Zhihu
         redirect_urls = []
         redirect_indices = []
         for i, result in enumerate(results):
@@ -439,179 +470,76 @@ class BasePlatformSearcher(ABC):
             f"Resolving {len(redirect_urls)} redirect URLs to target domains: {target_domains}"
         )
 
-        # Use a single page to resolve all redirects
-        page = None
+        # Try CDP-based resolution first
         try:
+            resolver = URLResolver(target_domains=target_domains, redirect_timeout=5.0)
             page = await self.browser_pool.get_page()
-            page.set_default_timeout(3000)  # Short timeout for redirects
 
-            resolved_urls = []
-            for idx, redirect_url in enumerate(redirect_urls):
-                try:
-                    self.logger.debug(
-                        f"Processing redirect {idx+1}/{len(redirect_urls)}: {redirect_url}"
+            try:
+                # Resolve URLs using CDP
+                resolved_urls = await resolver.resolve_urls_batch(page, redirect_urls)
+
+                # Check if resolution was successful
+                success_count = sum(
+                    1
+                    for url in resolved_urls
+                    if url and any(domain in url for domain in target_domains)
+                )
+
+                if success_count > 0:
+                    # CDP resolution succeeded for at least some URLs
+                    self.logger.info(
+                        f"CDP resolution succeeded for {success_count}/{len(redirect_urls)} URLs"
                     )
 
-                    # Set platform-specific Referer based on URL
-                    if "zhihu.sogou.com" in redirect_url:
-                        referer_url = "https://zhihu.sogou.com/"
-                    elif "weixin.sogou.com" in redirect_url:
-                        referer_url = "https://weixin.sogou.com/"
-                    else:
-                        referer_url = (
-                            redirect_url.split("/link")[0]
-                            if "/link" in redirect_url
-                            else redirect_url
-                        )
-
-                    self.logger.debug(f"  使用 Referer: {referer_url}")
-
-                    # Set extra HTTP headers to simulate coming from search results page
-                    await page.set_extra_http_headers(
-                        {
-                            "Referer": referer_url,
-                            "User-Agent": (
-                                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                "Chrome/120.0.0.0 Safari/537.36"
-                            ),
-                        }
-                    )
-
-                    # Access the redirect URL and wait for navigation
-                    # Use networkidle to wait for JavaScript redirects
-                    try:
-                        response = await page.goto(
-                            redirect_url, wait_until="networkidle", timeout=10000
-                        )
-                    except Exception as e:
-                        self.logger.debug(
-                            f"  Goto failed with networkidle, trying domcontentloaded: {e}"
-                        )
-                        # If networkidle fails, try with domcontentloaded
-                        response = await page.goto(
-                            redirect_url, wait_until="domcontentloaded", timeout=10000
-                        )
-
-                    initial_url = page.url
-                    self.logger.debug(f"  Initial URL after goto: {initial_url}")
-                    self.logger.debug(
-                        f"  Response status: {response.status if response else 'None'}"
-                    )
-
-                    # Wait for redirect to complete
-                    # For some platforms, we need to wait longer or click the link
-                    max_wait = 5.0  # Maximum wait time in seconds (increased from 3)
-                    wait_interval = 0.3  # Check every 0.3 seconds (more frequent checks)
-                    waited = 0.0
-
-                    while waited < max_wait:
-                        await page.wait_for_timeout(int(wait_interval * 1000))
-                        current_url = page.url
-
-                        # Log progress every 1 second
-                        if int(waited) % 1 == 0 and waited > 0:
-                            current_preview = (
-                                current_url[:80] + "..." if len(current_url) > 80 else current_url
+                    # Update results with resolved URLs
+                    for i, resolved_url in zip(redirect_indices, resolved_urls):
+                        if resolved_url:
+                            results[i]["url"] = resolved_url
+                            self.logger.debug(f"Resolved URL {i}: {resolved_url}")
+                        else:
+                            # Try fallback for failed URLs
+                            original_url = redirect_urls[redirect_indices.index(i)]
+                            self.logger.debug(f"CDP failed for URL {i}, trying fallback")
+                            fallback_url = self._extract_final_url_from_sogou_redirect(
+                                original_url, target_domains
                             )
-                            self.logger.debug(
-                                f"  等待跳转... {waited:.1f}s, 当前URL: {current_preview}"
-                            )
-
-                        if current_url != initial_url:
-                            # URL changed, redirect happened
-                            self.logger.debug(f"  URL changed during wait: {current_url}")
-                            break
-                        waited += wait_interval
-
-                    # If still on Sogou page, try clicking the link
-                    if "sogou.com" in page.url:
-                        self.logger.debug(
-                            "  Still on Sogou page, trying to find and click target link"
-                        )
-                        try:
-                            # Try multiple strategies to find the target link
-                            link_element = None
-
-                            # Strategy 1: Direct href matching for target domains
-                            domain_selectors = ", ".join(
-                                [f"a[href*='{domain}']" for domain in target_domains]
-                            )
-                            link_element = await page.query_selector(domain_selectors)
-
-                            # Strategy 2: If not found, try common link patterns
-                            if not link_element:
-                                common_selectors = [
-                                    "a[href^='http']",  # Any absolute link
-                                    ".link",  # Common class name
-                                    "a.news-title",  # News title link
-                                    "a.title",  # Title link
-                                ]
-                                for selector in common_selectors:
-                                    link_element = await page.query_selector(selector)
-                                    if link_element:
-                                        href = await link_element.get_attribute("href")
-                                        if href and any(
-                                            domain in href for domain in target_domains
-                                        ):
-                                            break
-                                        link_element = None
-
-                            if link_element:
-                                self.logger.debug("  Found target link element, clicking...")
-                                # Click the link and wait for navigation
-                                async with page.expect_navigation(
-                                    timeout=5000, wait_until="networkidle"
-                                ):
-                                    await link_element.click()
-                                await page.wait_for_timeout(1000)
-                                self.logger.debug(f"  After click, URL: {page.url}")
+                            if fallback_url:
+                                results[i]["url"] = fallback_url
                             else:
-                                self.logger.debug("  No target link element found on page")
-                        except Exception as e:
-                            # Clicking failed, continue with current URL
-                            self.logger.debug(f"  Clicking failed: {e}")
+                                self.logger.warning(
+                                    f"Both CDP and fallback failed for URL {i}, keeping original"
+                                )
 
-                    # Get the final URL after potential redirects
-                    final_url = page.url
-                    self.logger.debug(f"  Final URL: {final_url}")
-
-                    # Check if we got redirected to any target domain
-                    redirected = False
-                    for target_domain in target_domains:
-                        if target_domain in final_url and "sogou.com" not in final_url:
-                            self.logger.info(
-                                f"  ✓ Successfully resolved to {target_domain}: {final_url}"
-                            )
-                            resolved_urls.append(final_url)
-                            redirected = True
-                            break
-
-                    if not redirected:
-                        # Redirect didn't go to target, use original URL
-                        self.logger.warning(
-                            f"  ✗ Failed to resolve to target domain. "
-                            f"Final URL: {final_url}, using original: {redirect_url}"
-                        )
-                        resolved_urls.append(redirect_url)
-
-                except Exception as e:
-                    # If redirect fails, use original URL
+                    await page.close()
+                    return results
+                else:
+                    # CDP resolution failed for all URLs, try fallback
                     self.logger.warning(
-                        f"  ✗ Exception during redirect resolution: {e}, "
-                        f"using original: {redirect_url}"
+                        "CDP resolution failed for all URLs, falling back to HTTP method"
                     )
-                    resolved_urls.append(redirect_url)
+                    await page.close()
+            except Exception as e:
+                self.logger.warning(f"CDP resolution error: {e}, falling back to HTTP method")
+                if page:
+                    await page.close()
 
-            # Update results with resolved URLs
-            for i, resolved_url in zip(redirect_indices, resolved_urls):
-                results[i]["url"] = resolved_url
+        except Exception as e:
+            self.logger.warning(f"CDP resolver initialization error: {e}, using fallback")
 
-        except Exception:
-            # If batch processing fails, return original results
-            pass
-        finally:
-            if page:
-                await page.close()
+        # Fallback to HTTP-based method
+        self.logger.info("Using HTTP-based URL resolution fallback")
+        for i, redirect_url in zip(redirect_indices, redirect_urls):
+            try:
+                fallback_url = self._extract_final_url_from_sogou_redirect(
+                    redirect_url, target_domains
+                )
+                if fallback_url:
+                    results[i]["url"] = fallback_url
+                    self.logger.debug(f"Fallback resolved URL {i}: {fallback_url}")
+                else:
+                    self.logger.warning(f"Fallback failed for URL {i}, keeping original")
+            except Exception as e:
+                self.logger.warning(f"Fallback error for URL {i}: {e}")
 
         return results

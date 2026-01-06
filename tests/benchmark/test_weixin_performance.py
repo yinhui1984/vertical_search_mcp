@@ -116,6 +116,7 @@ class TestWeixinPerformance:
         First search (no cache) should take normal time.
         Second search (with cache) should be much faster (< 0.01s).
         """
+
         def compare_results_ignoring_url(results1: list, results2: list) -> bool:
             """
             Compare results ignoring URL differences.
