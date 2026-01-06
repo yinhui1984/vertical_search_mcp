@@ -93,7 +93,7 @@ class MCPServer:
             params: Initialize parameters
         """
         result = {
-            "protocolVersion": "2025-06-18",
+            "protocolVersion": "2024-11-05",
             "capabilities": {
                 "tools": {"listChanged": False},
                 "resources": {"subscribe": False, "listChanged": False},

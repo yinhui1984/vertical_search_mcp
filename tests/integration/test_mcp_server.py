@@ -51,7 +51,7 @@ class TestMCPServerIntegration:
     @pytest.mark.asyncio
     async def test_initialize(self, server: MCPServer) -> None:
         """Test initialize request handling."""
-        request = self._create_request("initialize", {"protocolVersion": "2025-06-18"})
+        request = self._create_request("initialize", {"protocolVersion": "2024-11-05"})
 
         # Capture response by mocking send_response
         response_captured = None
@@ -73,7 +73,7 @@ class TestMCPServerIntegration:
         assert response_captured["id"] == 1
         assert response_captured["error"] is None
         assert response_captured["result"] is not None
-        assert response_captured["result"]["protocolVersion"] == "2025-06-18"
+        assert response_captured["result"]["protocolVersion"] == "2024-11-05"
         assert response_captured["result"]["serverInfo"]["name"] == "vertical-search"
 
     @pytest.mark.asyncio
