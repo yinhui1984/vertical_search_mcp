@@ -6,6 +6,7 @@ A scalable vertical search MCP (Model Context Protocol) server supporting multip
 
 - **Multi-platform support**: Default support for WeChat and Zhihu, easily extensible to other platforms
 - **High performance**: Browser reuse mechanism, 5x speed improvement
+- **Real URL resolution**: Automatically resolves redirect links to get final destination URLs (e.g., `mp.weixin.qq.com` for WeChat, `zhihu.com` for Zhihu)
 - **High extensibility**: New platform integration takes only 1-2 hours
 - **Production-ready stability**: Comprehensive error handling and monitoring
 
@@ -115,7 +116,8 @@ The tool will automatically:
 1. Route to the appropriate platform searcher
 2. Check cache first (5-minute TTL)
 3. Execute search with browser pool
-4. Format and return results
+4. Resolve redirect links to get real destination URLs
+5. Format and return results
 
 **Example Response**:
 ```
@@ -125,16 +127,18 @@ Found 5 result(s) for 'Python' on WeChat:
    Source: 微信公众号
    Date: 2024-01-15
    Summary: 本文详细介绍了Python变量命名的最佳实践...
-   Link: https://weixin.sogou.com/link?url=...
+   Link: https://mp.weixin.qq.com/s?src=11&timestamp=...
 
 2. **Python异步编程指南**
    Source: 微信公众号
    Date: 2024-01-14
    Summary: 深入理解Python的asyncio模块...
-   Link: https://weixin.sogou.com/link?url=...
+   Link: https://mp.weixin.qq.com/s?src=11&timestamp=...
 
 ...
 ```
+
+**Note**: The returned URLs are real links (e.g., `mp.weixin.qq.com` for WeChat, `zhihu.com` for Zhihu), not redirect links from Sogou.
 
 #### Testing the MCP Server
 
@@ -236,29 +240,49 @@ asyncio.run(main())
 [
     {
         'title': 'Python变量命名规范详解',
-        'url': 'https://weixin.sogou.com/link?url=...',
+        'url': 'https://mp.weixin.qq.com/s?src=11&timestamp=1767670509&ver=6463&signature=...',
         'source': '微信公众号',
         'date': '2024-01-15',  # May be empty if not available
         'snippet': '本文详细介绍了Python变量命名的最佳实践...'  # May be empty if not available
     },
     {
         'title': 'Python异步编程指南',
-        'url': 'https://weixin.sogou.com/link?url=...',
+        'url': 'https://mp.weixin.qq.com/s?src=11&timestamp=1767670509&ver=6463&signature=...',
         'source': '微信公众号',
         'date': '2024-01-14',
         'snippet': '深入理解Python的asyncio模块...'
     },
     # ... more results
 ]
+
+# Example for Zhihu platform
+[
+    {
+        'title': 'Python 麦该愉么喜?',
+        'url': 'https://www.zhihu.com/question/353341563',
+        'source': '知乎',
+        'date': '',  # May be empty if not available
+        'snippet': ''  # May be empty if not available
+    },
+    # ... more results
+]
 ```
+
+**Note**: The returned URLs are real links directly to the target platforms:
+- WeChat articles: `https://mp.weixin.qq.com/s?...`
+- Zhihu questions/articles: `https://www.zhihu.com/question/...` or `https://www.zhihu.com/...`
+
+The system automatically resolves redirect links from Sogou to get the final destination URLs.
 
 #### Result Fields
 
 Each result dictionary contains the following fields:
 
 - **title** (str): Article title
-- **url** (str): Article URL (absolute URL)
-- **source** (str): Source platform name (e.g., "微信公众号")
+- **url** (str): Article URL (real link to the target platform, not a redirect link)
+  - WeChat: `https://mp.weixin.qq.com/s?...`
+  - Zhihu: `https://www.zhihu.com/question/...` or `https://www.zhihu.com/...`
+- **source** (str): Source platform name (e.g., "微信公众号", "知乎")
 - **date** (str): Publication date (may be empty if not available)
 - **snippet** (str): Article snippet/description (may be empty if not available)
 
@@ -299,7 +323,8 @@ vertical-search-mcp/
 │   ├── browser_pool.py        # Browser pool
 │   ├── cache.py               # Cache layer
 │   ├── base_searcher.py       # Base searcher class
-│   └── search_manager.py      # Unified manager
+│   ├── search_manager.py      # Unified manager
+│   └── url_resolver.py        # URL resolver (redirect to real links)
 ├── platforms/                 # Platform adapters
 │   ├── weixin_searcher.py     # WeChat searcher
 │   └── zhihu_searcher.py      # Zhihu searcher
