@@ -6,6 +6,7 @@ It inherits from BasePlatformSearcher and implements platform-specific search lo
 """
 
 import os
+import logging
 import yaml
 from typing import List, Dict, Optional, Any
 from urllib.parse import urlencode
@@ -32,6 +33,7 @@ class ZhihuSearcher(BasePlatformSearcher):
         super().__init__(browser_pool)
         self.config = self._load_config()
         self.base_url = self.config.get("base_url", "https://zhihu.sogou.com/zhihu")
+        self.logger = logging.getLogger(__name__)
 
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -147,11 +149,15 @@ class ZhihuSearcher(BasePlatformSearcher):
             # Parse and extract results
             RESULTS_PER_PAGE = 10
             if max_results > RESULTS_PER_PAGE:
-                return await self._parse_results_with_pagination(
+                results = await self._parse_results_with_pagination(
                     page, max_results, RESULTS_PER_PAGE
                 )
             else:
-                return await self._parse_results(page, max_results)
+                results = await self._parse_results(page, max_results)
+
+            # Return results with Sogou redirect links (no URL resolution)
+            # URL resolution will be implemented in a future iteration
+            return results
 
         except Exception:
             return []
@@ -181,7 +187,13 @@ class ZhihuSearcher(BasePlatformSearcher):
 
             # Extract title and URL
             title = await title_elem.inner_text()
-            link = await title_elem.get_attribute("href")
+
+            # Try to get href using JavaScript to ensure we get the complete URL
+            # Sometimes href attribute might be truncated
+            link = await title_elem.evaluate("(el) => el.getAttribute('href')")
+            if not link:
+                # Fallback to get_attribute
+                link = await title_elem.get_attribute("href")
 
             if not title or not link:
                 return None
@@ -190,7 +202,8 @@ class ZhihuSearcher(BasePlatformSearcher):
             title = self._clean_text(title)
 
             # Resolve relative URLs to absolute URLs
-            url = self._resolve_url(link)
+            # Note: Sogou redirect links use www.sogou.com, not zhihu.sogou.com
+            url = self._resolve_url_base(link, self.base_url, "www.sogou.com")
 
             # Try to extract additional metadata from parent container
             snippet = ""
@@ -201,21 +214,22 @@ class ZhihuSearcher(BasePlatformSearcher):
                 parent_handle = await element.evaluate_handle("el => el.closest('li')")
                 if parent_handle:
                     parent = parent_handle.as_element()
-                    # Try to find snippet/description
-                    snippet_elem = await parent.query_selector(
-                        ".news-text, .text, .desc, .summary"
-                    )
-                    if snippet_elem is not None:
-                        snippet_text = await snippet_elem.inner_text()
-                        snippet = self._clean_text(snippet_text)
+                    if parent:
+                        # Try to find snippet/description
+                        snippet_elem = await parent.query_selector(
+                            ".news-text, .text, .desc, .summary"
+                        )
+                        if snippet_elem is not None:
+                            snippet_text = await snippet_elem.inner_text()
+                            snippet = self._clean_text(snippet_text)
 
-                    # Try to find date
-                    date_elem = await parent.query_selector(
-                        ".news-time, .time, .date, .pub-time"
-                    )
-                    if date_elem is not None:
-                        date_text = await date_elem.inner_text()
-                        date = self._clean_text(date_text)
+                        # Try to find date
+                        date_elem = await parent.query_selector(
+                            ".news-time, .time, .date, .pub-time"
+                        )
+                        if date_elem is not None:
+                            date_text = await date_elem.inner_text()
+                            date = self._clean_text(date_text)
             except Exception:
                 pass
 
@@ -229,28 +243,3 @@ class ZhihuSearcher(BasePlatformSearcher):
 
         except Exception:
             return None
-
-    def _resolve_url(self, link: str) -> str:
-        """
-        Resolve relative URL to absolute URL.
-
-        Args:
-            link: URL string (may be relative or absolute)
-
-        Returns:
-            Absolute URL string
-        """
-        if not link:
-            return ""
-
-        # If already absolute URL, return as is
-        if link.startswith("http://") or link.startswith("https://"):
-            return link
-
-        # If relative URL, make it absolute
-        if link.startswith("/"):
-            domain = "https://zhihu.sogou.com"
-            return domain + link
-
-        # If relative path without leading slash, prepend base URL
-        return f"{self.base_url}/{link}"

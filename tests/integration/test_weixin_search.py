@@ -11,7 +11,6 @@ to the WeChat search platform. They test:
 """
 
 import pytest
-from typing import List, Dict
 from core.browser_pool import BrowserPool
 from core.search_manager import UnifiedSearchManager
 from platforms.weixin_searcher import WeixinSearcher
@@ -88,6 +87,23 @@ class TestWeixinSearchIntegration:
 
             # URL should be absolute
             assert result["url"].startswith("http://") or result["url"].startswith("https://")
+
+            # URL should be Sogou redirect link (not final WeChat article URL)
+            # URL resolution will be implemented in a future iteration
+            assert "sogou.com" in result["url"]
+
+    @pytest.mark.asyncio
+    async def test_redirect_links(self, searcher: WeixinSearcher) -> None:
+        """Test that URLs are Sogou redirect links."""
+        results = await searcher.search("Python", max_results=3)
+
+        assert len(results) > 0
+
+        # All URLs should be Sogou redirect links
+        # URL resolution will be implemented in a future iteration
+        for result in results:
+            url = result.get("url", "")
+            assert "sogou.com" in url, f"Expected Sogou redirect link, got: {url}"
 
     @pytest.mark.asyncio
     async def test_time_filter(self, searcher: WeixinSearcher) -> None:
@@ -264,4 +280,3 @@ class TestWeixinSearchIntegration:
         for result in results:
             assert "title" in result
             assert "url" in result
-

@@ -11,7 +11,7 @@ from typing import List, Dict, Optional, Any
 from urllib.parse import urlencode
 from core.base_searcher import BasePlatformSearcher
 from core.browser_pool import BrowserPool
-from playwright.async_api import Page, ElementHandle
+from playwright.async_api import ElementHandle
 
 
 class WeixinSearcher(BasePlatformSearcher):
@@ -58,7 +58,7 @@ class WeixinSearcher(BasePlatformSearcher):
         if "weixin" not in configs:
             raise KeyError("'weixin' section not found in config file")
 
-        return configs["weixin"]
+        return configs["weixin"]  # type: ignore[no-any-return]
 
     async def search(
         self, query: str, max_results: int = 10, time_filter: Optional[str] = None, **kwargs: Any
@@ -168,12 +168,18 @@ class WeixinSearcher(BasePlatformSearcher):
             RESULTS_PER_PAGE = 10
             if max_results > RESULTS_PER_PAGE:
                 # Use pagination to collect results from multiple pages
-                return await self._parse_results_with_pagination(page, max_results, RESULTS_PER_PAGE)
+                results = await self._parse_results_with_pagination(
+                    page, max_results, RESULTS_PER_PAGE
+                )
             else:
                 # Single page is enough
-                return await self._parse_results(page, max_results)
+                results = await self._parse_results(page, max_results)
 
-        except Exception as e:
+            # Return results with Sogou redirect links (no URL resolution)
+            # URL resolution will be implemented in a future iteration
+            return results
+
+        except Exception:
             # Log error and return empty results
             # Error handling will be improved in Iteration 6
             return []
@@ -213,7 +219,8 @@ class WeixinSearcher(BasePlatformSearcher):
             title = self._clean_text(title)
 
             # Resolve relative URLs to absolute URLs
-            url = self._resolve_url(link)
+            # Note: Sogou redirect links use www.sogou.com, not weixin.sogou.com
+            url = self._resolve_url_base(link, self.base_url, "www.sogou.com")
 
             # Try to extract additional metadata from parent container
             snippet = ""
@@ -221,19 +228,21 @@ class WeixinSearcher(BasePlatformSearcher):
 
             try:
                 # Find parent container (usually <li> or similar)
-                parent = await element.evaluate_handle("el => el.closest('li')")
-                if parent:
-                    # Try to find snippet/description
-                    snippet_elem = await parent.as_element().query_selector(".news-text, .text, .desc")
-                    if snippet_elem:
-                        snippet_text = await snippet_elem.inner_text()
-                        snippet = self._clean_text(snippet_text)
+                parent_handle = await element.evaluate_handle("el => el.closest('li')")
+                if parent_handle:
+                    parent = parent_handle.as_element()
+                    if parent:
+                        # Try to find snippet/description
+                        snippet_elem = await parent.query_selector(".news-text, .text, .desc")
+                        if snippet_elem:
+                            snippet_text = await snippet_elem.inner_text()
+                            snippet = self._clean_text(snippet_text)
 
-                    # Try to find date
-                    date_elem = await parent.as_element().query_selector(".news-time, .time, .date")
-                    if date_elem:
-                        date_text = await date_elem.inner_text()
-                        date = self._clean_text(date_text)
+                        # Try to find date
+                        date_elem = await parent.query_selector(".news-time, .time, .date")
+                        if date_elem:
+                            date_text = await date_elem.inner_text()
+                            date = self._clean_text(date_text)
             except Exception:
                 # If metadata extraction fails, continue with basic info
                 pass
@@ -249,30 +258,3 @@ class WeixinSearcher(BasePlatformSearcher):
         except Exception:
             # If extraction fails, return None
             return None
-
-    def _resolve_url(self, link: str) -> str:
-        """
-        Resolve relative URL to absolute URL.
-
-        Args:
-            link: URL string (may be relative or absolute)
-
-        Returns:
-            Absolute URL string
-        """
-        if not link:
-            return ""
-
-        # If already absolute URL, return as is
-        if link.startswith("http://") or link.startswith("https://"):
-            return link
-
-        # If relative URL, make it absolute
-        if link.startswith("/"):
-            # Extract domain from base_url
-            domain = "https://weixin.sogou.com"
-            return domain + link
-
-        # If relative path without leading slash, prepend base URL
-        return f"{self.base_url}/{link}"
-

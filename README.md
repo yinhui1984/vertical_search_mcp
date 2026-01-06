@@ -70,7 +70,14 @@ playwright install chromium
 
 ### MCP Server
 
-Configure the MCP server in Claude Desktop's settings:
+The MCP server provides a `search_vertical` tool that can be called from Claude Desktop.
+
+#### Configuration
+
+Configure the MCP server in Claude Desktop's settings file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -83,7 +90,71 @@ Configure the MCP server in Claude Desktop's settings:
 }
 ```
 
-**Note**: Use the Python interpreter from your virtual environment (`.venv/bin/python`). If you're using a system-wide Python, you can use `python3` or the full path to your Python interpreter.
+**Important Notes**:
+- Replace `/path/to/vertical-search-mcp` with the actual path to your project directory
+- Use the Python interpreter from your virtual environment (`.venv/bin/python`)
+- If you're using a system-wide Python, you can use `python3` or the full path to your Python interpreter
+- After updating the config, restart Claude Desktop
+
+#### Tool: `search_vertical`
+
+The MCP server provides a single tool called `search_vertical` that supports searching multiple platforms.
+
+**Parameters**:
+- `platform` (required): Platform to search. Options: `"weixin"`, `"zhihu"`
+- `query` (required): Search query string (1-100 characters)
+- `max_results` (optional): Maximum number of results to return (1-30, default: 10)
+- `time_filter` (optional): Time filter for results. Options: `"day"`, `"week"`, `"month"`, `"year"`
+
+**Example Usage in Claude**:
+```
+Search for Python articles on WeChat from the last week, limit to 5 results.
+```
+
+The tool will automatically:
+1. Route to the appropriate platform searcher
+2. Check cache first (5-minute TTL)
+3. Execute search with browser pool
+4. Format and return results
+
+**Example Response**:
+```
+Found 5 result(s) for 'Python' on WeChat:
+
+1. **Python变量命名规范详解**
+   Source: 微信公众号
+   Date: 2024-01-15
+   Summary: 本文详细介绍了Python变量命名的最佳实践...
+   Link: https://weixin.sogou.com/link?url=...
+
+2. **Python异步编程指南**
+   Source: 微信公众号
+   Date: 2024-01-14
+   Summary: 深入理解Python的asyncio模块...
+   Link: https://weixin.sogou.com/link?url=...
+
+...
+```
+
+#### Testing the MCP Server
+
+You can test the MCP server manually:
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Run the server (it will read from stdin)
+python mcp_server.py
+```
+
+Then send JSON-RPC messages to test:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}
+{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_vertical", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
+```
 
 ### Direct Usage
 

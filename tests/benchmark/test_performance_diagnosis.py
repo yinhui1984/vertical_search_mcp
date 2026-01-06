@@ -9,7 +9,6 @@ import time
 import pytest
 from core.browser_pool import BrowserPool
 from platforms.weixin_searcher import WeixinSearcher
-from playwright.async_api import Page
 
 
 class TestPerformanceDiagnosis:
@@ -40,7 +39,6 @@ class TestPerformanceDiagnosis:
         - Waiting for selectors
         - Parsing results
         """
-        import asyncio
 
         query = "Python"
         max_results = 5
@@ -69,13 +67,11 @@ class TestPerformanceDiagnosis:
             # Stage 3: Wait for selectors
             start_wait = time.time()
             selectors = searcher.config.get("selectors", {}).get("article_list", [])
-            page_loaded = False
             selector_used = None
 
             for selector in selectors:
                 try:
                     await page.wait_for_selector(selector, timeout=2000, state="visible")
-                    page_loaded = True
                     selector_used = selector
                     break
                 except Exception:
@@ -97,7 +93,9 @@ class TestPerformanceDiagnosis:
             print(f"2. Navigation:           {time_nav:6.2f}s ({time_nav/total_time*100:5.1f}%)")
             print(f"3. Wait for selectors:   {time_wait:6.2f}s ({time_wait/total_time*100:5.1f}%)")
             print(f"   - Selector used:      {selector_used or 'None'}")
-            print(f"4. Parse results:        {time_parse:6.2f}s ({time_parse/total_time*100:5.1f}%)")
+            print(
+                f"4. Parse results:        {time_parse:6.2f}s ({time_parse/total_time*100:5.1f}%)"
+            )
             print(f"{'='*60}")
             print(f"Total time:              {total_time:6.2f}s")
             print(f"Results found:           {len(results)}")
@@ -154,16 +152,16 @@ class TestPerformanceDiagnosis:
                     found_indicators.append(indicator)
 
             print(f"\n{'='*60}")
-            print(f"Anti-Bot Detection Check")
+            print("Anti-Bot Detection Check")
             print(f"{'='*60}")
             print(f"Page title: {title}")
             print(f"URL: {page.url}")
 
             if found_indicators:
-                print(f"\n⚠️  WARNING: Possible anti-bot detection!")
+                print("\n⚠️  WARNING: Possible anti-bot detection!")
                 print(f"Found indicators: {', '.join(found_indicators)}")
             else:
-                print(f"\n✅ No obvious anti-bot indicators found")
+                print("\n✅ No obvious anti-bot indicators found")
 
             # Check if we got redirected
             if "weixin.sogou.com" not in page.url:
@@ -218,7 +216,7 @@ class TestPerformanceDiagnosis:
             elapsed = time.time() - start
 
             print(f"\n{'='*60}")
-            print(f"Network Timing Analysis")
+            print("Network Timing Analysis")
             print(f"{'='*60}")
             print(f"Total navigation time: {elapsed:.2f}s")
             print(f"\nRequests/Responses tracked: {len(requests_timing)}")
@@ -233,14 +231,11 @@ class TestPerformanceDiagnosis:
             if main_request:
                 # Find corresponding response
                 for item in requests_timing:
-                    if (
-                        item["type"] == "response"
-                        and item["url"] == main_request["url"]
-                    ):
+                    if item["type"] == "response" and item["url"] == main_request["url"]:
                         request_time = main_request["time"]
                         response_time = item["time"]
                         network_time = response_time - request_time
-                        print(f"\nMain request timing:")
+                        print("\nMain request timing:")
                         print(f"  Request sent:     {request_time:.3f}")
                         print(f"  Response received: {response_time:.3f}")
                         print(f"  Network time:     {network_time:.2f}s")
@@ -250,4 +245,3 @@ class TestPerformanceDiagnosis:
 
         finally:
             await page.close()
-
