@@ -75,7 +75,7 @@ class ZhihuSearcher(BasePlatformSearcher):
         return configs["zhihu"]  # type: ignore[no-any-return]
 
     async def search(
-        self, query: str, max_results: int = 10, time_filter: Optional[str] = None, **kwargs: Any
+        self, query: str, max_results: int = 10, **kwargs: Any
     ) -> List[Dict[str, str]]:
         """
         Execute Zhihu search.
@@ -90,7 +90,6 @@ class ZhihuSearcher(BasePlatformSearcher):
         Args:
             query: Search query string
             max_results: Maximum number of results to return (max: 30)
-            time_filter: Optional time filter ('day', 'week', 'month', 'year')
             **kwargs: Additional parameters (not used currently)
 
         Returns:
@@ -120,13 +119,6 @@ class ZhihuSearcher(BasePlatformSearcher):
             "type": self.config.get("url_params", {}).get("type", "2"),
             "ie": self.config.get("url_params", {}).get("ie", "utf8"),
         }
-
-        # Add time filter if specified
-        if time_filter:
-            time_filters = self.config.get("time_filters", {})
-            time_code = time_filters.get(time_filter)
-            if time_code:
-                params["tsn"] = time_code
 
         url = f"{self.base_url}?{urlencode(params)}"
 

@@ -33,12 +33,34 @@ async def test_search(
     print(f"{BOLD}{CYAN}{platform_name}{RESET}: {GRAY}'{query}'{RESET}")
     print(f"{GRAY}{'='*80}{RESET}")
 
+    # Progress tracking
+    last_stage = ""
+    last_percentage = -1
+
+    async def progress_callback(stage: str, message: str, current: int, total: int) -> None:
+        """Progress callback to show search progress."""
+        nonlocal last_stage, last_percentage
+        percentage = int(current / total * 100) if total > 0 else 0
+        
+        # Only print if stage or percentage changed significantly
+        if stage != last_stage or abs(percentage - last_percentage) >= 10:
+            stage_colors = {
+                "searching": CYAN,
+                "fetching_content": YELLOW,
+                "compressing": MAGENTA,
+            }
+            stage_color = stage_colors.get(stage, GRAY)
+            print(f"{GRAY}  [{stage_color}{stage.upper()}{RESET}{GRAY}] {message} ({current}/{total}, {percentage}%){RESET}")
+            last_stage = stage
+            last_percentage = percentage
+
     try:
         results = await manager.search(
             platform=platform,
             query=query,
             max_results=max_results,
             include_content=True,
+            progress_callback=progress_callback,
         )
 
         if not results:
@@ -84,7 +106,7 @@ async def test_search(
 
 async def main() -> None:
     """Main function to run quick tests."""
-    query = "cursor mcp"
+    query = "web3 趋势 2026"
     max_results = 15
 
     manager = UnifiedSearchManager()

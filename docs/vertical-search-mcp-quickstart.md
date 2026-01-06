@@ -158,8 +158,7 @@ zhihu:
 await manager.search(
     platform="weixin",
     query="Web3 区块链",
-    max_results=10,
-    time_filter="week"
+    max_results=10
 )
 ```
 

@@ -65,7 +65,7 @@ class BasePlatformSearcher(ABC):
         Args:
             query: Search query string
             max_results: Maximum number of results to return
-            **kwargs: Additional platform-specific parameters (e.g., time_filter)
+            **kwargs: Additional platform-specific parameters
 
         Returns:
             List of search result dictionaries, each containing:

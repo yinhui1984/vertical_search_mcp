@@ -8,7 +8,7 @@ This module implements the unified search manager that handles:
 - Anti-crawler protection (rate limiting, delays, detection)
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable, Awaitable
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
 from core.base_searcher import BasePlatformSearcher
@@ -89,9 +89,9 @@ class UnifiedSearchManager:
         platform: str,
         query: str,
         max_results: int = 10,
-        time_filter: Optional[str] = None,
         use_cache: bool = True,
         include_content: bool = False,
+        progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None,
     ) -> List[Dict[str, str]]:
         """
         Execute search on specified platform.
@@ -107,9 +107,10 @@ class UnifiedSearchManager:
             platform: Platform name (must be registered)
             query: Search query string
             max_results: Maximum number of results to return (max: 30)
-            time_filter: Optional time filter (e.g., 'day', 'week', 'month')
             use_cache: Whether to use cache (default: True)
             include_content: Whether to fetch and include full article content (default: False)
+            progress_callback: Optional async callback for progress updates.
+                Signature: (stage: str, message: str, current: int, total: int) -> None
 
         Returns:
             List of search result dictionaries (with 'content' field if include_content=True)
@@ -130,17 +131,34 @@ class UnifiedSearchManager:
             self.logger.warning(f"Rate limit exceeded for {platform}:{query}")
             raise
 
+        # Report progress: searching stage
+        if progress_callback:
+            await progress_callback(
+                "searching",
+                f"Starting search on {platform} for '{query}'...",
+                0,
+                max_results,
+            )
+
         # Check cache first (skip delay for cache hits)
         cache_key = None
         if use_cache:
             cache_key = self.cache.get_cache_key(
                 platform=platform,
                 query=query,
-                params={"max_results": max_results, "time_filter": time_filter},
+                params={"max_results": max_results},
             )
             cached = self.cache.get(cache_key)
             if cached is not None:
                 self.logger.info(f"Cache hit for {platform}:{query}")
+                # Report progress: completed (cache hit)
+                if progress_callback:
+                    await progress_callback(
+                        "searching",
+                        f"Cache hit, returning {len(cached)} results",
+                        len(cached),
+                        max_results,
+                    )
                 # Type assertion: cached value should be List[Dict[str, str]]
                 # Cache stores Any type, but we know it's List[Dict[str, str]] here
                 return cached  # type: ignore[no-any-return]
@@ -163,8 +181,17 @@ class UnifiedSearchManager:
         try:
             self.logger.info(f"Executing search on {platform} for query: {query}")
             results = await searcher.search(
-                query=query, max_results=max_results, time_filter=time_filter
+                query=query, max_results=max_results
             )
+
+            # Report progress: searching completed
+            if progress_callback:
+                await progress_callback(
+                    "searching",
+                    f"Found {len(results)} results",
+                    len(results),
+                    max_results,
+                )
 
             # Cache results
             if use_cache and cache_key is not None:
@@ -177,7 +204,9 @@ class UnifiedSearchManager:
             if include_content:
                 try:
                     self.logger.info(f"Processing content for {len(results)} results")
-                    results = await self._process_content(results, platform)
+                    results = await self._process_content(
+                        results, platform, progress_callback=progress_callback
+                    )
                     self.logger.info(f"Content processing completed for {platform}:{query}")
                 except Exception as e:
                     self.logger.error(
@@ -243,7 +272,10 @@ class UnifiedSearchManager:
         return self._content_processor
 
     async def _process_content(
-        self, results: List[Dict[str, str]], platform: str
+        self,
+        results: List[Dict[str, str]],
+        platform: str,
+        progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None,
     ) -> List[Dict[str, str]]:
         """
         Process content for search results.
@@ -251,12 +283,13 @@ class UnifiedSearchManager:
         Args:
             results: List of search result dictionaries
             platform: Platform name
+            progress_callback: Optional async callback for progress updates
 
         Returns:
             List of results with content added
         """
         processor = self._get_content_processor()
-        return await processor.process_results(results, platform)
+        return await processor.process_results(results, platform, progress_callback=progress_callback)
 
     async def close(self) -> None:
         """

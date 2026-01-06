@@ -75,8 +75,8 @@ class TestSearchCache:
         cache = SearchCache()
 
         # Same parameters in different order should generate same key
-        key1 = cache.get_cache_key("weixin", "Python", {"max_results": 10, "time_filter": "day"})
-        key2 = cache.get_cache_key("weixin", "Python", {"time_filter": "day", "max_results": 10})
+        key1 = cache.get_cache_key("weixin", "Python", {"max_results": 10})
+        key2 = cache.get_cache_key("weixin", "Python", {"max_results": 10})
 
         assert key1 == key2
 

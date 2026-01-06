@@ -300,41 +300,6 @@ class TestMCPServerIntegration:
         assert "max_results" in response_captured["error"]["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_tool_call_invalid_time_filter(self, server: MCPServer) -> None:
-        """Test tool call with invalid time_filter."""
-        request = self._create_request(
-            "tools/call",
-            {
-                "name": "search_vertical",
-                "arguments": {
-                    "platform": "weixin",
-                    "query": "Python",
-                    "time_filter": "invalid",
-                },
-            },
-        )
-
-        response_captured = None
-
-        def capture_response(request_id: int, result: Any = None, error: Any = None) -> None:
-            nonlocal response_captured
-            response_captured = {"id": request_id, "result": result, "error": error}
-
-        original_send = server.send_response
-        server.send_response = capture_response  # type: ignore
-
-        await server.handle_request(request)
-
-        server.send_response = original_send
-
-        # Verify error response
-        assert response_captured is not None
-        assert response_captured["id"] == 1
-        assert response_captured["error"] is not None
-        assert response_captured["error"]["code"] == -32602
-        assert "time_filter" in response_captured["error"]["message"].lower()
-
-    @pytest.mark.asyncio
     async def test_tool_call_unknown_tool(self, server: MCPServer) -> None:
         """Test tool call with unknown tool name."""
         request = self._create_request(

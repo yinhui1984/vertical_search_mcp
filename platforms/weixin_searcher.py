@@ -75,7 +75,7 @@ class WeixinSearcher(BasePlatformSearcher):
         return configs["weixin"]  # type: ignore[no-any-return]
 
     async def search(
-        self, query: str, max_results: int = 10, time_filter: Optional[str] = None, **kwargs: Any
+        self, query: str, max_results: int = 10, **kwargs: Any
     ) -> List[Dict[str, str]]:
         """
         Execute WeChat article search.
@@ -90,7 +90,6 @@ class WeixinSearcher(BasePlatformSearcher):
         Args:
             query: Search query string
             max_results: Maximum number of results to return (max: 30)
-            time_filter: Optional time filter ('day', 'week', 'month', 'year')
             **kwargs: Additional parameters (not used currently)
 
         Returns:
@@ -121,23 +120,106 @@ class WeixinSearcher(BasePlatformSearcher):
             "ie": self.config.get("url_params", {}).get("ie", "utf8"),
         }
 
-        # Add time filter if specified
-        if time_filter:
-            time_filters = self.config.get("time_filters", {})
-            time_code = time_filters.get(time_filter)
-            if time_code:
-                params["tsn"] = time_code
-
         url = f"{self.base_url}?{urlencode(params)}"
+        logger.info(f"Built search URL: {url}")
 
         # Get page from browser pool
         page = await self.browser_pool.get_page()
 
         try:
-            # Navigate to search page
+            # Navigate to search page with retry mechanism for redirects
             # Use domcontentloaded for faster initial load, then wait for specific elements
             # This is faster than networkidle which waits for all network activity to stop
-            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            max_nav_retries = 2
+            nav_success = False
+            
+            for nav_retry in range(max_nav_retries):
+                logger.debug(f"Navigating to URL (attempt {nav_retry + 1}/{max_nav_retries}): {url}")
+                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                
+                # Check actual URL after navigation (may have been redirected)
+                actual_url = page.url
+                
+                # Check if redirected to root or base URL (without query params)
+                is_root_redirect = (
+                    actual_url == "https://weixin.sogou.com/" or
+                    actual_url == "https://weixin.sogou.com" or
+                    actual_url == self.base_url or 
+                    actual_url == f"{self.base_url}/" or
+                    ("query=" not in actual_url and "weixin.sogou.com" in actual_url)
+                )
+                
+                if actual_url != url:
+                    logger.warning(
+                        f"URL changed after navigation. Expected: {url}, Actual: {actual_url}"
+                    )
+                    
+                    # If redirected to base URL without params, this indicates a problem
+                    if is_root_redirect:
+                        logger.warning(
+                            f"Page was redirected to base/root URL. This may indicate: "
+                            f"1) Invalid query parameters, 2) Anti-crawler redirect, "
+                            f"3) Search service unavailable"
+                        )
+                        
+                        if nav_retry < max_nav_retries - 1:
+                            logger.info(f"Retrying navigation after {2 * (nav_retry + 1)} seconds...")
+                            await asyncio.sleep(2 * (nav_retry + 1))  # Exponential backoff
+                            continue
+                        else:
+                            # Last retry, return empty
+                            logger.error("All navigation retries exhausted, returning empty results")
+                            return []
+                
+                # Wait a bit for any redirects to complete
+                await asyncio.sleep(1.0)
+                
+                # Check actual URL again after waiting
+                final_url = page.url
+                
+                # Check if we successfully reached search results
+                has_query_param = "query=" in final_url
+                is_valid_url = (
+                    final_url == url or 
+                    has_query_param or
+                    (final_url.startswith("https://weixin.sogou.com/weixin") and has_query_param)
+                )
+                
+                if is_valid_url:
+                    # Successfully reached search results page
+                    logger.info(f"Successfully navigated to search results: {final_url[:100]}")
+                    nav_success = True
+                    break
+                
+                # Still redirected after waiting
+                logger.error(
+                    f"Page still redirected after wait. "
+                    f"Original URL: {url}, Final URL: {final_url}"
+                )
+                
+                if nav_retry < max_nav_retries - 1:
+                    logger.info(f"Retrying navigation after {2 * (nav_retry + 1)} seconds...")
+                    await asyncio.sleep(2 * (nav_retry + 1))
+                    continue
+                
+                # Last retry failed, check for common issues
+                try:
+                    page_content = await page.content()
+                    if "验证码" in page_content or "captcha" in page_content.lower():
+                        logger.warning("CAPTCHA page detected after all retries")
+                        return []
+                    elif "登录" in page_content and "需要登录" in page_content:
+                        logger.warning("Login required page detected after all retries")
+                        return []
+                except Exception as e:
+                    logger.debug(f"Could not check page content: {e}")
+                
+                logger.error("Failed all retries, returning empty results")
+                return []
+            
+            if not nav_success:
+                logger.error("Failed to navigate to search results page after all retries")
+                return []
 
             # Check for anti-crawler responses
             detection = await self.detector.detect(page, platform="weixin")
@@ -162,19 +244,23 @@ class WeixinSearcher(BasePlatformSearcher):
             # This prevents long waits if first selector doesn't match
             selectors = self.config.get("selectors", {}).get("article_list", [])
             page_loaded = False
+            selector_errors = []
 
             # Use shorter timeout per selector (2 seconds) to fail fast
             # This way if first selector doesn't work, we quickly try the next one
             # Total max wait time: 2s * number of selectors (much better than 10s each)
             for selector in selectors:
                 try:
-                    # Wait with shorter timeout for faster failure
+                    # Wait with reasonable timeout for reliable loading
                     # state="visible" ensures element is actually visible, not just in DOM
-                    await page.wait_for_selector(selector, timeout=2000, state="visible")
+                    await page.wait_for_selector(selector, timeout=5000, state="visible")
                     page_loaded = True
+                    logger.info(f"Successfully matched selector: {selector}")
                     break
-                except Exception:
+                except Exception as e:
                     # Try next selector immediately (don't wait full timeout)
+                    selector_errors.append(f"{selector}: {str(e)}")
+                    logger.debug(f"Selector {selector} failed: {e}")
                     continue
 
             # If no selector matched, the page might still be loading
@@ -185,15 +271,44 @@ class WeixinSearcher(BasePlatformSearcher):
                     # Sometimes results load just after domcontentloaded
                     first_selector = selectors[0] if selectors else None
                     if first_selector:
-                        await page.wait_for_selector(first_selector, timeout=3000, state="visible")
+                        logger.info(f"Retrying first selector with longer timeout: {first_selector}")
+                        await page.wait_for_selector(first_selector, timeout=8000, state="visible")
                         page_loaded = True
-                except Exception:
+                        logger.info(f"Successfully matched selector on retry: {first_selector}")
+                except Exception as e:
                     # No results found or page structure changed
-                    # This could indicate:
-                    # 1. Anti-bot detection (captcha or block)
-                    # 2. Page structure changed
-                    # 3. Network issues
-                    return []
+                    logger.warning(f"First selector retry also failed: {e}")
+                    selector_errors.append(f"{first_selector} (retry): {str(e)}")
+
+            # If still not loaded, log diagnostic information
+            if not page_loaded:
+                # Get page URL and title for debugging
+                page_url = page.url
+                page_title = await page.title()
+                logger.warning(
+                    f"No search results found. URL: {page_url}, Title: {page_title}, "
+                    f"Selectors tried: {len(selectors)}, Errors: {selector_errors}"
+                )
+
+                # Check if page contains common error indicators
+                try:
+                    page_content = await page.content()
+                    if "验证码" in page_content or "captcha" in page_content.lower():
+                        logger.warning("Page may contain CAPTCHA (found '验证码' or 'captcha' in content)")
+                    if "登录" in page_content and "需要登录" in page_content:
+                        logger.warning("Page may require login (found login indicators)")
+                    if "没有找到" in page_content or "no results" in page_content.lower():
+                        logger.info("Page indicates no results found (legitimate empty result)")
+                except Exception as e:
+                    logger.debug(f"Could not check page content: {e}")
+
+                # No results found or page structure changed
+                # This could indicate:
+                # 1. Anti-bot detection (captcha or block)
+                # 2. Page structure changed
+                # 3. Network issues
+                # 4. Legitimate empty search results
+                return []
 
             # Parse and extract results
             # Use pagination if max_results > 10 (Sogou returns 10 results per page)

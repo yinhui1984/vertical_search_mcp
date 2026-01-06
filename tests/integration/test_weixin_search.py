@@ -106,25 +106,6 @@ class TestWeixinSearchIntegration:
             assert "sogou.com" in url, f"Expected Sogou redirect link, got: {url}"
 
     @pytest.mark.asyncio
-    async def test_time_filter(self, searcher: WeixinSearcher) -> None:
-        """Test time filter functionality."""
-        # Search with day filter
-        results_day = await searcher.search("Python", max_results=5, time_filter="day")
-
-        # Search with week filter
-        results_week = await searcher.search("Python", max_results=5, time_filter="week")
-
-        # Both should return results
-        assert isinstance(results_day, list)
-        assert isinstance(results_week, list)
-
-        # Results may be different (or same if no new articles)
-        # We just verify they are valid results
-        for result in results_day + results_week:
-            assert "title" in result
-            assert "url" in result
-
-    @pytest.mark.asyncio
     async def test_max_results_limit(self, searcher: WeixinSearcher) -> None:
         """Test that max_results limit is respected."""
         results = await searcher.search("Python", max_results=3)

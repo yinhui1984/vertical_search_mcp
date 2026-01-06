@@ -75,11 +75,11 @@ playwright install chromium
 
 ### MCP Server
 
-The MCP server provides a `search_vertical` tool that can be called from Claude Desktop.
+The MCP server provides async search tools (`start_vertical_search` and `get_search_status`) that can be called from AI clients supporting the MCP protocol (e.g., Claude Desktop).
 
 #### Configuration
 
-Configure the MCP server in Claude Desktop's settings file:
+Configure the MCP server in your AI client's settings file. For example, in Claude Desktop:
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -106,16 +106,45 @@ Configure the MCP server in Claude Desktop's settings file:
   - Get your API key from: https://platform.deepseek.com/
   - **When API key is required**: For long articles (exceeding 3000 tokens), the system uses DeepSeek API to intelligently compress content while preserving key information. Without the API key, long articles will be truncated, potentially losing important content.
   - **When API key is optional**: For short articles (under 3000 tokens), compression is not needed, so the API key is not required.
-- After updating the config, restart Claude Desktop
+- After updating the config, restart your AI client (e.g., Claude Desktop)
 
-#### Tool: `search_vertical`
+#### Tools: Async Search API
+
+The MCP server provides async search tools that support long-running searches without timeout issues. All searches use the unified async mode.
+
+**Tool 1: `start_vertical_search`**
+
+Start an async search task. Returns `task_id` immediately (< 1 second), allowing the search to run in the background.
 
 **Parameters:**
 - `platform` (required): Platform to search (`weixin` or `zhihu`)
-- `query` (required): Search query string
+- `query` (required): Search query string (1-100 characters)
 - `max_results` (optional): Maximum number of results (1-30, default: 10)
-- `time_filter` (optional): Time filter (`day`, `week`, `month`, `year`)
 - `include_content` (optional): Whether to include full article content (default: `true`)
+
+**Response:**
+- If task completes quickly (< 1 second): Returns results directly with `status: "completed"`
+- Otherwise: Returns `task_id` and `status: "started"` for polling
+
+**Tool 2: `get_search_status`**
+
+Get the status and results of an async search task. Use this to poll for progress and retrieve results when ready.
+
+**Parameters:**
+- `task_id` (required): Task ID from `start_vertical_search`
+
+**Response:**
+- `status: "running"`: Task is still executing, includes `progress` information
+- `status: "completed"`: Task finished, includes `content` with results
+- `status: "failed"`: Task failed, includes `error` message
+- `status: "not_found"`: Task expired or doesn't exist (tasks expire after 30 minutes)
+
+**Tool 3: `cancel_search`** (optional)
+
+Cancel a running search task.
+
+**Parameters:**
+- `task_id` (required): Task ID to cancel
 
 **Note on `include_content` parameter:**
 - When `include_content=true` (default): Fetches full article content and intelligently compresses it to stay within token limits
@@ -125,25 +154,54 @@ Configure the MCP server in Claude Desktop's settings file:
     - Without API key: Falls back to safe truncation strategy, potentially losing tail content
 - When `include_content=false`: Returns only titles, URLs, snippets
 
-The MCP server provides a single tool called `search_vertical` that supports searching multiple platforms.
-
-**Parameters**:
-- `platform` (required): Platform to search. Options: `"weixin"`, `"zhihu"`
-- `query` (required): Search query string (1-100 characters)
-- `max_results` (optional): Maximum number of results to return (1-30, default: 10)
-- `time_filter` (optional): Time filter for results. Options: `"day"`, `"week"`, `"month"`, `"year"`
-
 **Example Usage in Claude**:
 ```
 Search for Python articles on WeChat from the last week, limit to 5 results.
 ```
 
-The tool will automatically:
-1. Route to the appropriate platform searcher
-2. Check cache first (5-minute TTL)
-3. Execute search with browser pool
-4. Resolve redirect links to get real destination URLs
-5. Format and return results
+**IMPORTANT: Polling Required**
+The AI MUST follow this workflow:
+1. Call `start_vertical_search` to start the search
+2. **Repeatedly call `get_search_status` every 10-15 seconds** until:
+   - `status == "completed"` → Return results to user
+   - `status == "failed"` → Report error to user
+   - Do NOT stop polling until one of these final states is reached
+3. Display progress updates to the user while polling
+4. Return results when the task completes
+
+**Example AI Workflow**:
+```python
+# Step 1: Start search
+response = start_vertical_search(platform="weixin", query="Python", max_results=5)
+task_id = response["task_id"]
+
+# Step 2: Poll until complete (IMPORTANT: Keep polling!)
+while True:
+    status = get_search_status(task_id=task_id)
+    
+    if status["status"] == "completed":
+        # Got results, return to user
+        return status["content"]
+    elif status["status"] == "failed":
+        # Task failed, report error
+        return f"Search failed: {status['error']}"
+    else:
+        # Still running, show progress and wait
+        print(f"Progress: {status['progress']['percentage']}%")
+        # Wait 10-15 seconds before next poll
+        await sleep(12)
+```
+
+**Fast Completion Detection:**
+- If a task completes in < 1 second, `start_vertical_search` returns results directly
+- This avoids unnecessary polling for quick searches
+- For longer searches, use `get_search_status` to poll for results
+
+**Progress Updates:**
+The search progress is reported through `get_search_status` with stages:
+- `searching`: Finding articles on the platform
+- `fetching_content`: Downloading article content
+- `compressing`: Compressing content to fit token limits
 
 **Example Response**:
 ```
@@ -183,7 +241,8 @@ Then send JSON-RPC messages to test:
 ```json
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}
 {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_vertical", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_vertical_search", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
 
 ### Direct Usage
@@ -210,13 +269,11 @@ async def main():
         # query: Search query string
         # max_results: Maximum number of results to return (default: 10, max: 30)
         #   Note: If max_results > 10, pagination will be used automatically
-        # time_filter: Optional time filter - 'day', 'week', 'month', or 'year' (default: None)
         # use_cache: Whether to use cache (default: True)
         results = await manager.search(
             platform='weixin',
             query='Python',
             max_results=10,
-            time_filter=None,  # Optional: 'day', 'week', 'month', 'year'
             use_cache=True
         )
         
@@ -229,12 +286,11 @@ async def main():
             print(f"Snippet: {result['snippet']}")
             print("---")
         
-        # Search with time filter
+        # Search for recent results
         recent_results = await manager.search(
             platform='weixin',
             query='Machine Learning',
             max_results=5,
-            time_filter='week',  # Search within last week
             use_cache=True
         )
         

@@ -73,11 +73,11 @@ playwright install chromium
 
 ### MCP 服务器
 
-MCP 服务器提供了一个 `search_vertical` 工具，可以从 Claude Desktop 调用。
+MCP 服务器提供异步搜索工具（`start_vertical_search` 和 `get_search_status`），可以被支持 MCP 协议的 AI 客户端调用（例如 Claude Desktop）。
 
 #### 配置
 
-在 Claude Desktop 的设置文件中配置 MCP 服务器：
+在您的 AI 客户端设置文件中配置 MCP 服务器。例如，在 Claude Desktop 中：
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -104,16 +104,45 @@ MCP 服务器提供了一个 `search_vertical` 工具，可以从 Claude Desktop
   - 从以下地址获取 API 密钥：https://platform.deepseek.com/
   - **何时需要 API 密钥**：对于长文章（超过 3000 tokens），系统使用 DeepSeek API 智能压缩内容，同时保留关键信息。没有 API 密钥时，长文章将被截断，可能会丢失重要内容。
   - **何时 API 密钥可选**：对于短文章（少于 3000 tokens），不需要压缩，因此不需要 API 密钥。
-- 更新配置后，重启 Claude Desktop
+- 更新配置后，重启您的 AI 客户端（例如 Claude Desktop）
 
-#### 工具：`search_vertical`
+#### 工具：异步搜索 API
+
+MCP 服务器提供异步搜索工具，支持长时间运行的搜索而不会超时。所有搜索都使用统一的异步模式。
+
+**工具 1: `start_vertical_search`**
+
+启动异步搜索任务。立即返回 `task_id`（< 1 秒），允许搜索在后台运行。
 
 **参数：**
 - `platform`（必需）：要搜索的平台（`weixin` 或 `zhihu`）
-- `query`（必需）：搜索查询字符串
+- `query`（必需）：搜索查询字符串（1-100 个字符）
 - `max_results`（可选）：最大结果数（1-30，默认：10）
-- `time_filter`（可选）：时间过滤器（`day`、`week`、`month`、`year`）
 - `include_content`（可选）：是否包含完整文章内容（默认：`true`）
+
+**响应：**
+- 如果任务快速完成（< 1 秒）：直接返回结果，`status: "completed"`
+- 否则：返回 `task_id` 和 `status: "started"` 用于轮询
+
+**工具 2: `get_search_status`**
+
+获取异步搜索任务的状态和结果。使用此工具轮询进度并在就绪时检索结果。
+
+**参数：**
+- `task_id`（必需）：来自 `start_vertical_search` 的任务 ID
+
+**响应：**
+- `status: "running"`：任务仍在执行，包含 `progress` 信息
+- `status: "completed"`：任务完成，包含 `content` 和结果
+- `status: "failed"`：任务失败，包含 `error` 消息
+- `status: "not_found"`：任务已过期或不存在（任务在 30 分钟后过期）
+
+**工具 3: `cancel_search`**（可选）
+
+取消正在运行的搜索任务。
+
+**参数：**
+- `task_id`（必需）：要取消的任务 ID
 
 **关于 `include_content` 参数的说明：**
 - 当 `include_content=true`（默认）：获取完整文章内容并智能压缩以保持在 token 限制内
@@ -123,25 +152,54 @@ MCP 服务器提供了一个 `search_vertical` 工具，可以从 Claude Desktop
     - 无 API 密钥：回退到安全截断策略，可能会丢失尾部内容
 - 当 `include_content=false`：仅返回标题、URL、摘要
 
-MCP 服务器提供了一个名为 `search_vertical` 的工具，支持搜索多个平台。
-
-**参数**：
-- `platform`（必需）：要搜索的平台。选项：`"weixin"`、`"zhihu"`
-- `query`（必需）：搜索查询字符串（1-100 个字符）
-- `max_results`（可选）：要返回的最大结果数（1-30，默认：10）
-- `time_filter`（可选）：结果的时间过滤器。选项：`"day"`、`"week"`、`"month"`、`"year"`
-
 **在 Claude 中的使用示例**：
 ```
-搜索上周的微信 Python 文章，限制为 5 个结果。
+搜索微信上的 Python 文章，限制为 5 个结果。
 ```
 
-该工具将自动：
-1. 路由到相应的平台搜索器
-2. 首先检查缓存（5 分钟 TTL）
-3. 使用浏览器池执行搜索
-4. 解析重定向链接以获取真实目标 URL
-5. 格式化并返回结果
+**重要：需要轮询**
+AI 必须遵循以下工作流程：
+1. 调用 `start_vertical_search` 启动搜索
+2. **每 10-15 秒重复调用 `get_search_status`**，直到：
+   - `status == "completed"` → 向用户返回结果
+   - `status == "failed"` → 向用户报告错误
+   - 在达到这些最终状态之一之前，不要停止轮询
+3. 在轮询时向用户显示进度更新
+4. 任务完成时返回结果
+
+**示例 AI 工作流程**：
+```python
+# 步骤 1：启动搜索
+response = start_vertical_search(platform="weixin", query="Python", max_results=5)
+task_id = response["task_id"]
+
+# 步骤 2：轮询直到完成（重要：持续轮询！）
+while True:
+    status = get_search_status(task_id=task_id)
+    
+    if status["status"] == "completed":
+        # 获得结果，返回给用户
+        return status["content"]
+    elif status["status"] == "failed":
+        # 任务失败，报告错误
+        return f"搜索失败: {status['error']}"
+    else:
+        # 仍在运行，显示进度并等待
+        print(f"进度: {status['progress']['percentage']}%")
+        # 等待 10-15 秒后再下次轮询
+        await sleep(12)
+```
+
+**快速完成检测：**
+- 如果任务在 < 1 秒内完成，`start_vertical_search` 直接返回结果
+- 这避免了快速搜索的不必要轮询
+- 对于较长的搜索，使用 `get_search_status` 轮询结果
+
+**进度更新：**
+搜索进度通过 `get_search_status` 报告，包含以下阶段：
+- `searching`：在平台上查找文章
+- `fetching_content`：下载文章内容
+- `compressing`：压缩内容以符合 token 限制
 
 **示例响应**：
 ```
@@ -181,7 +239,8 @@ python mcp_server.py
 ```json
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}
 {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_vertical", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_vertical_search", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
 
 ### 直接使用
@@ -208,13 +267,11 @@ async def main():
         # query: Search query string
         # max_results: Maximum number of results to return (default: 10, max: 30)
         #   Note: If max_results > 10, pagination will be used automatically
-        # time_filter: Optional time filter - 'day', 'week', 'month', or 'year' (default: None)
         # use_cache: Whether to use cache (default: True)
         results = await manager.search(
             platform='weixin',
             query='Python',
             max_results=10,
-            time_filter=None,  # Optional: 'day', 'week', 'month', 'year'
             use_cache=True
         )
         
@@ -227,12 +284,11 @@ async def main():
             print(f"Snippet: {result['snippet']}")
             print("---")
         
-        # Search with time filter
+        # Search for recent results
         recent_results = await manager.search(
             platform='weixin',
             query='Machine Learning',
             max_results=5,
-            time_filter='week',  # Search within last week
             use_cache=True
         )
         

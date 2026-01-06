@@ -405,19 +405,16 @@ class MCPServer:
             platform: weixin | zhihu
             query: 搜索关键词
             max_results: 结果数量
-            time_filter: 时间筛选（可选）
         """
         platform = params.get('platform')
         query = params.get('query')
         max_results = params.get('max_results', 10)
-        time_filter = params.get('time_filter')
         
         try:
             results = await self.search_manager.search(
                 platform=platform,
                 query=query,
-                max_results=max_results,
-                time_filter=time_filter
+                max_results=max_results
             )
             
             # 格式化结果
@@ -582,11 +579,6 @@ weixin:
     link: "a[href]"
     description: ".txt-info"
     meta: ".s-p"
-  
-  # 时间筛选
-  time_filters:
-    day: "1"
-    week: "7"
     month: "30"
     year: "365"
 

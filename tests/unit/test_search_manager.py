@@ -158,20 +158,6 @@ class TestUnifiedSearchManager:
         assert len(results2) == 1
 
     @pytest.mark.asyncio
-    async def test_search_with_time_filter(self) -> None:
-        """Test search with time filter parameter."""
-        manager = UnifiedSearchManager()
-        pool = manager.browser_pool
-        searcher = MockSearcher(pool, "weixin")
-
-        manager.register_platform("weixin", searcher)
-
-        results = await manager.search(
-            platform="weixin", query="test query", time_filter="day", use_cache=False
-        )
-        assert len(results) == 1
-
-    @pytest.mark.asyncio
     async def test_search_error_handling(self) -> None:
         """Test error handling in search."""
         manager = UnifiedSearchManager()

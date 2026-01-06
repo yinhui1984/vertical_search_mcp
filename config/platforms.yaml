@@ -22,13 +22,6 @@ weixin:
     type: "2"  # Article type
     ie: "utf8"  # Encoding
   
-  # Time filter mappings (tsn parameter values)
-  time_filters:
-    day: "1"
-    week: "2"
-    month: "3"
-    year: "4"
-  
   # Platform metadata
   metadata:
     name: "WeChat"
@@ -73,13 +66,6 @@ zhihu:
   url_params:
     type: "2"  # Article type
     ie: "utf8"  # Encoding
-  
-  # Time filter mappings (tsn parameter values)
-  time_filters:
-    day: "1"
-    week: "2"
-    month: "3"
-    year: "4"
   
   # Platform metadata
   metadata:

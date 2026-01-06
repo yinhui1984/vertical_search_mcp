@@ -7,7 +7,7 @@ to process search results with full article content.
 
 import asyncio
 import yaml
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 from pathlib import Path
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
@@ -71,14 +71,19 @@ class ContentProcessor:
         self.final_output_threshold = self.thresholds.get("final_output", 80000)
 
     async def process_results(
-        self, results: List[Dict[str, str]], platform: str
-    ) -> List[Dict[str, str]]:
+        self,
+        results: List[Dict[str, Any]],
+        platform: str,
+        progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Process search results to fetch and compress content.
 
         Args:
             results: List of search result dictionaries
             platform: Platform name (e.g., 'weixin', 'zhihu')
+            progress_callback: Optional async callback for progress updates.
+                Signature: (stage: str, message: str, current: int, total: int) -> None
 
         Returns:
             List of results with content added (and compressed if needed)
@@ -87,10 +92,21 @@ class ContentProcessor:
             return results
 
         self.logger.info(f"Processing {len(results)} results for content fetching")
+        total = len(results)
 
         # Step 1: Fetch all article contents (concurrent, with semaphore limit)
+        if progress_callback:
+            await progress_callback(
+                "fetching_content",
+                f"Fetching content for {total} articles...",
+                0,
+                total,
+            )
+
         urls = [result.get("url", "") for result in results]
-        contents = await self._fetch_all_contents(urls, platform)
+        contents = await self._fetch_all_contents(
+            urls, platform, progress_callback=progress_callback, total=total
+        )
 
         # Step 2: Add content to results
         for i, (result, content) in enumerate(zip(results, contents)):
@@ -126,15 +142,25 @@ class ContentProcessor:
                 f"Compressing {len(articles_to_compress)} single articles "
                 f"(exceeding {self.single_article_threshold} tokens threshold)"
             )
+            compress_total = len(articles_to_compress)
             for i, article in enumerate(articles_to_compress, 1):
                 try:
                     title = article.get("title", f"Article {i}")
                     original_tokens = article.get("content_tokens", 0)
+
+                    if progress_callback:
+                        await progress_callback(
+                            "compressing",
+                            f"Compressing article {i}/{compress_total}: '{title}'",
+                            i,
+                            compress_total,
+                        )
+
                     self.logger.info(
-                        f"Compressing article {i}/{len(articles_to_compress)}: "
+                        f"Compressing article {i}/{compress_total}: "
                         f"'{title}' ({original_tokens} tokens)"
                     )
-                    
+
                     compressed_article = await self.content_compressor.compress_article(
                         article, max_tokens=2000  # Target 2000 tokens per article
                     )
@@ -142,10 +168,15 @@ class ContentProcessor:
                     if compressed_content := compressed_article.get("content"):
                         new_tokens = self.token_estimator.estimate_tokens(compressed_content)
                         compressed_article["content_tokens"] = new_tokens
-                        self.logger.info(
-                            f"Article '{title}' compressed: {original_tokens} -> {new_tokens} tokens "
-                            f"({new_tokens/original_tokens*100:.1f}% of original)"
-                        )
+                        if isinstance(original_tokens, int) and original_tokens > 0:
+                            self.logger.info(
+                                f"Article '{title}' compressed: {original_tokens} -> {new_tokens} tokens "
+                                f"({new_tokens/original_tokens*100:.1f}% of original)"
+                            )
+                        else:
+                            self.logger.info(
+                                f"Article '{title}' compressed: {new_tokens} tokens"
+                            )
                 except Exception as e:
                     self.logger.error(
                         f"Failed to compress article '{article.get('title', 'Unknown')}': {e}",
@@ -160,6 +191,14 @@ class ContentProcessor:
 
         # Step 6: Batch compress if total exceeds threshold
         if self._should_compress_batch(total_tokens):
+            if progress_callback:
+                await progress_callback(
+                    "compressing",
+                    f"Batch compressing {len(results)} articles (total: {total_tokens} tokens)...",
+                    len(results),
+                    len(results),
+                )
+
             self.logger.info(
                 f"Total tokens ({total_tokens}) exceeds threshold ({self.total_content_threshold}), "
                 f"starting batch compression (target: {self.final_output_threshold} tokens)"
@@ -198,7 +237,11 @@ class ContentProcessor:
         return results
 
     async def _fetch_all_contents(
-        self, urls: List[str], platform: str
+        self,
+        urls: List[str],
+        platform: str,
+        progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None,
+        total: Optional[int] = None,
     ) -> List[Optional[str]]:
         """
         Fetch all article contents concurrently with semaphore limit.
@@ -206,15 +249,28 @@ class ContentProcessor:
         Args:
             urls: List of URLs to fetch
             platform: Platform name
+            progress_callback: Optional async callback for progress updates
+            total: Total number of articles (for progress reporting)
 
         Returns:
             List of content strings (None if fetch failed)
         """
         semaphore = asyncio.Semaphore(self.concurrency)
+        fetched_count = 0
+        total_count = total or len(urls)
 
-        async def fetch_one(url: str) -> Optional[str]:
+        async def fetch_one(url: str, index: int) -> Optional[str]:
+            nonlocal fetched_count
             async with semaphore:
                 if not url:
+                    fetched_count += 1
+                    if progress_callback:
+                        await progress_callback(
+                            "fetching_content",
+                            f"Fetched {fetched_count}/{total_count} articles...",
+                            fetched_count,
+                            total_count,
+                        )
                     return None
 
                 # Check cache first
@@ -222,6 +278,14 @@ class ContentProcessor:
                 cached = self.cache.get_content(url_hash)
                 if cached is not None:
                     self.logger.debug(f"Cache hit for content: {url}")
+                    fetched_count += 1
+                    if progress_callback:
+                        await progress_callback(
+                            "fetching_content",
+                            f"Fetched {fetched_count}/{total_count} articles...",
+                            fetched_count,
+                            total_count,
+                        )
                     return cached
 
                 # Fetch content
@@ -236,10 +300,19 @@ class ContentProcessor:
                     )
                     self.cache.set_content(url_hash, content, ttl=cache_ttl)
 
+                fetched_count += 1
+                if progress_callback:
+                    await progress_callback(
+                        "fetching_content",
+                        f"Fetched {fetched_count}/{total_count} articles...",
+                        fetched_count,
+                        total_count,
+                    )
+
                 return content
 
         # Fetch all concurrently
-        results = await asyncio.gather(*[fetch_one(url) for url in urls])
+        results = await asyncio.gather(*[fetch_one(url, i) for i, url in enumerate(urls)])
         return list(results)
 
     def _should_compress_single(self, article: Dict[str, Any]) -> bool:

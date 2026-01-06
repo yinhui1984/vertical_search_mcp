@@ -44,7 +44,7 @@ class SearchCache:
         Args:
             platform: Platform name (e.g., 'weixin', 'zhihu')
             query: Search query string
-            params: Additional parameters (e.g., max_results, time_filter)
+            params: Additional parameters (e.g., max_results)
 
         Returns:
             MD5 hash of the cache key string

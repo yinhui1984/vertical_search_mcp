@@ -12,10 +12,13 @@ import json
 import logging
 import sys
 import time
-from typing import Any, Dict, List, Optional
+import traceback
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Callable
 
 from core.logger import setup_logger, get_logger
 from core.search_manager import UnifiedSearchManager
+from core.task_manager import TaskManager, TaskStatus
 from platforms.weixin_searcher import WeixinSearcher
 # Zhihu searcher import disabled by default
 # from platforms.zhihu_searcher import ZhihuSearcher
@@ -32,16 +35,9 @@ class MCPServer:
     def __init__(self) -> None:
         """Initialize MCP server."""
         self.manager: Optional[UnifiedSearchManager] = None
+        self.task_manager = TaskManager()
         self.request_id = 0
         self.logger = get_logger("vertical_search.mcp_server")
-        
-        # Tool name aliases mapping
-        # Maps alternative names to the canonical tool name
-        self.tool_aliases: Dict[str, str] = {
-            "垂直搜索": "search_vertical",
-            "vertical_search": "search_vertical",
-            "search_vertical": "search_vertical",
-        }
 
     async def start(self) -> None:
         """
@@ -122,8 +118,8 @@ class MCPServer:
         """
         tools = [
             {
-                "name": "search_vertical",
-                "description": "垂直搜索 (Vertical Search): Search vertical platforms (WeChat, Zhihu, etc.) for articles and content. Also known as: 垂直搜索, vertical_search",
+                "name": "start_vertical_search",
+                "description": "Start an async vertical search task. Returns task_id immediately (< 1 second) in the response. IMPORTANT: Extract the task_id from the response (it's a UUID string like 'abc123-def456-...') and use it to call get_search_status repeatedly (every 10-15 seconds) until status is 'completed' or 'failed' to get the final results. The task_id is shown in both the 'task_id' field and in the 'content' text. If task completes quickly (< 1 second), results are returned directly with status='completed'.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -145,11 +141,6 @@ class MCPServer:
                             "minimum": 1,
                             "maximum": 30,
                         },
-                        "time_filter": {
-                            "type": "string",
-                            "description": "Time filter for results",
-                            "enum": ["day", "week", "month", "year"],
-                        },
                         "include_content": {
                             "type": "boolean",
                             "description": "Whether to include full article content (default: true). Content is automatically compressed if it exceeds token limits.",
@@ -158,7 +149,35 @@ class MCPServer:
                     },
                     "required": ["platform", "query"],
                 },
-            }
+            },
+            {
+                "name": "get_search_status",
+                "description": "Get the status and results of an async search task. IMPORTANT: You MUST call this repeatedly (every 10-15 seconds) with the EXACT task_id from start_vertical_search until status is 'completed' or 'failed'. Do not stop polling until you receive status='completed' (with results) or status='failed' (with error). The task_id is a UUID string (e.g., 'ee82cf71-d921-470c-8bee-6925c802301b') - use it exactly as returned. Returns: 'running' (with progress) if still executing, 'completed' (with results) if finished, 'failed' (with error) if error occurred, or 'not_found' if task expired.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID from start_vertical_search response. This is a UUID string (e.g., 'ee82cf71-d921-470c-8bee-6925c802301b'). Extract it from the 'task_id' field in the start_vertical_search response and use it exactly as-is.",
+                        },
+                    },
+                    "required": ["task_id"],
+                },
+            },
+            {
+                "name": "cancel_search",
+                "description": "Cancel a running search task.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID to cancel",
+                        },
+                    },
+                    "required": ["task_id"],
+                },
+            },
         ]
 
         self.send_response(request_id, {"tools": tools})
@@ -186,17 +205,15 @@ class MCPServer:
 
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
-        
-        # Resolve tool name alias to canonical name
-        canonical_name = self.tool_aliases.get(tool_name, tool_name)
-        
-        if canonical_name != tool_name:
-            self.logger.debug(f"Tool name alias resolved: '{tool_name}' -> '{canonical_name}'")
-        
-        self.logger.info(f"Tool call: {canonical_name} (requested as: {tool_name}), arguments: {json.dumps(arguments, ensure_ascii=False)}")
 
-        if canonical_name == "search_vertical":
-            await self._handle_search_vertical(request_id, arguments)
+        self.logger.info(f"Tool call: {tool_name}, arguments: {json.dumps(arguments, ensure_ascii=False)}")
+
+        if tool_name == "start_vertical_search":
+            await self._handle_start_vertical_search(request_id, arguments)
+        elif tool_name == "get_search_status":
+            await self._handle_get_search_status(request_id, arguments)
+        elif tool_name == "cancel_search":
+            await self._handle_cancel_search(request_id, arguments)
         else:
             self.send_response(
                 request_id,
@@ -204,11 +221,13 @@ class MCPServer:
                 {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             )
 
-    async def _handle_search_vertical(
+    async def _handle_start_vertical_search(
         self, request_id: int, arguments: Dict[str, Any]
     ) -> None:
         """
-        Handle search_vertical tool call.
+        Handle start_vertical_search tool call.
+
+        Creates a new async search task and starts background execution.
 
         Args:
             request_id: Request ID
@@ -250,7 +269,6 @@ class MCPServer:
 
         # Get optional parameters
         max_results = arguments.get("max_results", 10)
-        time_filter = arguments.get("time_filter")
         include_content = arguments.get("include_content", True)
 
         # Validate max_results
@@ -265,37 +283,168 @@ class MCPServer:
             )
             return
 
-        # Validate time_filter if provided
-        if time_filter and time_filter not in ["day", "week", "month", "year"]:
+        try:
+            # Create task
+            task_id = await self.task_manager.create_task(
+                query=query,
+                platform=platform,
+                max_results=max_results,
+                include_content=include_content,
+            )
+
+            # Estimate time
+            estimated_time = self._estimate_time(max_results, include_content)
+
+            # Start background execution
+            # Store the task reference to avoid garbage collection
+            background_task = asyncio.create_task(
+                self._execute_search_task(
+                    task_id=task_id,
+                    platform=platform,
+                    query=query,
+                    max_results=max_results,
+                    include_content=include_content,
+                )
+            )
+            # Add done callback to log if task fails silently
+            def task_done_callback(task: asyncio.Task) -> None:
+                try:
+                    task.result()  # This will raise if task failed
+                except Exception as e:
+                    self.logger.error(f"Background task {task_id} failed silently: {e}", exc_info=True)
+            background_task.add_done_callback(task_done_callback)
+
+            # Fast completion detection: wait 1 second, check if task completed
+            # Give the task a moment to start and potentially complete quickly
+            await asyncio.sleep(1.0)
+            task = await self.task_manager.get_task(task_id)
+
+            if task and task.status == TaskStatus.COMPLETED:
+                # Task completed quickly, return results directly
+                self.logger.info(f"Task {task_id} completed quickly, returning results directly")
+                result_text = self._format_search_results(platform, query, task.results or [])
+                self.send_response(
+                    request_id,
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": result_text,
+                            }
+                        ],
+                        "task_id": task_id,
+                        "status": "completed",
+                    },
+                )
+            else:
+                # Task still running, return task_id
+                # Include task_id in both result fields and content text for clarity
+                message_text = (
+                    f"Search task started.\n\n"
+                    f"TASK_ID: {task_id}\n\n"
+                    f"IMPORTANT: You MUST call get_search_status with task_id='{task_id}' "
+                    f"repeatedly (every 10-15 seconds) until status is 'completed' or 'failed' "
+                    f"to get the final results.\n\n"
+                    f"Estimated time: {estimated_time}"
+                )
+                self.send_response(
+                    request_id,
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": message_text,
+                            }
+                        ],
+                        "task_id": task_id,
+                        "status": "started",
+                        "estimated_time": estimated_time,
+                        "message": message_text,
+                    },
+                )
+
+        except Exception as e:
+            self.logger.error(f"Error starting search task: {str(e)}", exc_info=True)
             self.send_response(
                 request_id,
                 None,
+                {"code": -32603, "message": f"Failed to start search task: {str(e)}"},
+            )
+
+    async def _handle_get_search_status(
+        self, request_id: int, arguments: Dict[str, Any]
+    ) -> None:
+        """
+        Handle get_search_status tool call.
+
+        Returns task status, progress, and results if available.
+
+        Args:
+            request_id: Request ID
+            arguments: Tool arguments containing task_id
+        """
+        task_id = arguments.get("task_id")
+        if not task_id:
+            self.send_response(
+                request_id,
+                None,
+                {"code": -32602, "message": "Missing required parameter: task_id"},
+            )
+            return
+
+        task = await self.task_manager.get_task(task_id)
+
+        if not task:
+            error_text = (
+                f"Task not found.\n"
+                f"TASK_ID: {task_id}\n"
+                f"Error: Task not found. It may have expired (tasks expire after 30 minutes).\n\n"
+                f"Please check that you are using the correct task_id from start_vertical_search response."
+            )
+            self.send_response(
+                request_id,
                 {
-                    "code": -32602,
-                    "message": "time_filter must be one of: day, week, month, year",
+                    "task_id": task_id,
+                    "status": "not_found",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": error_text,
+                        }
+                    ],
+                    "error": "Task not found. It may have expired (tasks expire after 30 minutes).",
                 },
             )
             return
 
-        # Execute search
-        try:
-            start_time = time.time()
-            self.logger.info(f"Executing search: platform={platform}, query={query}, max_results={max_results}, time_filter={time_filter}")
-            
-            results = await self.manager.search(
-                platform=platform,
-                query=query,
-                max_results=max_results,
-                time_filter=time_filter,
-                use_cache=True,
-                include_content=include_content,
+        elapsed = (datetime.now() - task.created_at).total_seconds()
+
+        if task.status == TaskStatus.RUNNING:
+            progress_dict = None
+            if task.progress:
+                progress_dict = {
+                    "current": task.progress.current,
+                    "total": task.progress.total,
+                    "stage": task.progress.stage,
+                    "message": task.progress.message,
+                    "percentage": task.progress.percentage,
+                }
+
+            progress_text = ""
+            if progress_dict:
+                progress_text = (
+                    f"\nProgress: {progress_dict['stage']} - "
+                    f"{progress_dict['message']} "
+                    f"({progress_dict['percentage']}%)"
+                )
+
+            message_text = (
+                f"Task still running.{progress_text}\n\n"
+                f"TASK_ID: {task_id}\n\n"
+                f"IMPORTANT: You MUST call get_search_status with task_id='{task_id}' "
+                f"again in 10-15 seconds. Continue polling until status is 'completed' or 'failed'.\n\n"
+                f"Elapsed time: {int(elapsed)} seconds"
             )
-
-            elapsed_time = time.time() - start_time
-            self.logger.info(f"Search completed: {len(results)} results found in {elapsed_time:.2f}s (platform={platform}, query={query})")
-
-            # Format results
-            result_text = self._format_search_results(platform, query, results)
 
             self.send_response(
                 request_id,
@@ -303,35 +452,118 @@ class MCPServer:
                     "content": [
                         {
                             "type": "text",
-                            "text": result_text,
+                            "text": message_text,
                         }
-                    ]
+                    ],
+                    "task_id": task_id,
+                    "status": "running",
+                    "progress": progress_dict,
+                    "elapsed_time": f"{int(elapsed)} seconds",
+                    "message": message_text,
                 },
             )
 
-        except ValueError as e:
-            # Parameter validation errors
-            self.logger.warning(f"Parameter validation error: {str(e)} (platform={platform}, query={query})")
-            self.send_response(
-                request_id,
-                None,
-                {"code": -32602, "message": f"Invalid parameter: {str(e)}"},
+        elif task.status == TaskStatus.COMPLETED:
+            result_text = self._format_search_results(
+                task.platform, task.query, task.results or []
             )
-        except RuntimeError as e:
-            # Search execution errors
-            self.logger.error(f"Search error: {str(e)} (platform={platform}, query={query})", exc_info=True)
-            self.send_response(
-                request_id,
-                None,
-                {"code": -32603, "message": f"Search failed: {str(e)}"},
+            # Include task_id in the response for reference
+            full_result_text = (
+                f"Task completed successfully.\n"
+                f"TASK_ID: {task_id}\n"
+                f"Total results: {len(task.results) if task.results else 0}\n"
+                f"Elapsed time: {int(elapsed)} seconds\n\n"
+                f"{result_text}"
             )
-        except Exception as e:
-            # Unexpected errors
-            self.logger.error(f"Unexpected error: {str(e)} (platform={platform}, query={query})", exc_info=True)
+            self.send_response(
+                request_id,
+                {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": full_result_text,
+                        }
+                    ],
+                    "total_results": len(task.results) if task.results else 0,
+                    "elapsed_time": f"{int(elapsed)} seconds",
+                },
+            )
+
+        elif task.status == TaskStatus.FAILED:
+            error_text = (
+                f"Task failed.\n"
+                f"TASK_ID: {task_id}\n"
+                f"Error: {task.error or 'Unknown error'}\n"
+                f"Elapsed time: {int(elapsed)} seconds"
+            )
+            self.send_response(
+                request_id,
+                {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": error_text,
+                        }
+                    ],
+                    "error": task.error or "Unknown error",
+                    "elapsed_time": f"{int(elapsed)} seconds",
+                },
+            )
+
+        else:  # PENDING or CANCELLED
+            self.send_response(
+                request_id,
+                {
+                    "task_id": task_id,
+                    "status": task.status.value,
+                    "elapsed_time": f"{int(elapsed)} seconds",
+                },
+            )
+
+    async def _handle_cancel_search(
+        self, request_id: int, arguments: Dict[str, Any]
+    ) -> None:
+        """
+        Handle cancel_search tool call.
+
+        Cancels a running search task.
+
+        Args:
+            request_id: Request ID
+            arguments: Tool arguments containing task_id
+        """
+        task_id = arguments.get("task_id")
+        if not task_id:
             self.send_response(
                 request_id,
                 None,
-                {"code": -32603, "message": f"Unexpected error: {str(e)}"},
+                {"code": -32602, "message": "Missing required parameter: task_id"},
+            )
+            return
+
+        cancelled = await self.task_manager.cancel_task(task_id)
+
+        if cancelled:
+            self.send_response(
+                request_id,
+                {
+                    "task_id": task_id,
+                    "status": "cancelled",
+                    "message": "Task cancelled successfully",
+                },
+            )
+        else:
+            self.send_response(
+                request_id,
+                {
+                    "task_id": task_id,
+                    "status": "not_cancelled",
+                    "message": "Task could not be cancelled. It may not be running or may have already completed.",
+                },
             )
 
     def _format_search_results(
@@ -397,6 +629,110 @@ class MCPServer:
             result_text += "\n"
 
         return result_text
+
+    def _estimate_time(self, max_results: int, include_content: bool) -> str:
+        """
+        Estimate task completion time.
+
+        Args:
+            max_results: Maximum number of results
+            include_content: Whether to include content
+
+        Returns:
+            Estimated time string
+        """
+        if include_content:
+            if max_results <= 10:
+                return "30-60 seconds"
+            elif max_results <= 20:
+                return "1-2 minutes"
+            else:
+                return "2-3 minutes"
+        else:
+            if max_results <= 10:
+                return "20-40 seconds"
+            else:
+                return "40-60 seconds"
+
+    async def _execute_search_task(
+        self,
+        task_id: str,
+        platform: str,
+        query: str,
+        max_results: int,
+        include_content: bool,
+    ) -> None:
+        """
+        Execute search task in background.
+
+        This runs as an asyncio.create_task() and updates progress via TaskManager.
+
+        Args:
+            task_id: Task identifier
+            platform: Platform name
+            query: Search query
+            max_results: Maximum number of results
+            include_content: Whether to include content
+        """
+        logger = get_logger("vertical_search.mcp_server")
+
+        try:
+            # Update status to running
+            await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
+            logger.info(
+                f"Task {task_id} started execution: {platform}:{query}, "
+                f"max_results={max_results}, include_content={include_content}"
+            )
+
+            # Define progress callback
+            async def progress_callback(stage: str, message: str, current: int, total: int) -> None:
+                await self.task_manager.update_task_progress(
+                    task_id=task_id,
+                    current=current,
+                    total=total,
+                    stage=stage,
+                    message=message,
+                )
+
+            # Execute search with progress callback
+            assert self.manager is not None
+            logger.debug(f"Task {task_id}: Calling manager.search()")
+            results = await self.manager.search(
+                platform=platform,
+                query=query,
+                max_results=max_results,
+                use_cache=True,
+                include_content=include_content,
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Task {task_id}: Search returned {len(results)} results")
+            if len(results) == 0:
+                logger.warning(
+                    f"Task {task_id}: Search returned 0 results. "
+                    f"This may indicate: 1) No results found, 2) Anti-crawler detection, "
+                    f"3) Selector mismatch, 4) Page loading issue"
+                )
+
+            # Update task with results
+            await self.task_manager.update_task_status(
+                task_id=task_id,
+                status=TaskStatus.COMPLETED,
+                results=results,
+            )
+
+            logger.info(f"Task {task_id} completed: {len(results)} results")
+
+        except Exception as e:
+            logger.error(f"Task {task_id} failed: {e}", exc_info=True)
+
+            # Update task with error
+            await self.task_manager.update_task_status(
+                task_id=task_id,
+                status=TaskStatus.FAILED,
+                error=str(e),
+                error_traceback=traceback.format_exc(),
+            )
 
     async def handle_list_resources(self, request_id: int, params: Dict[str, Any]) -> None:
         """

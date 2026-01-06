@@ -109,7 +109,6 @@ class SearchTask:
     query: str
     platform: str
     max_results: int
-    time_filter: Optional[str]
     include_content: bool
     
     # Results (only when completed)
@@ -168,7 +167,6 @@ class TaskManager:
         query: str,
         platform: str,
         max_results: int,
-        time_filter: Optional[str] = None,
         include_content: bool = True
     ) -> str:
         """
@@ -187,7 +185,6 @@ class TaskManager:
                 query=query,
                 platform=platform,
                 max_results=max_results,
-                time_filter=time_filter,
                 include_content=include_content,
                 created_at=datetime.now(),
                 updated_at=datetime.now()
@@ -359,7 +356,6 @@ async def _execute_search_task(
             platform=task.platform,
             query=task.query,
             max_results=task.max_results,
-            time_filter=task.time_filter,
             include_content=task.include_content,
             progress_callback=progress_callback
         )
@@ -412,11 +408,6 @@ async def _execute_search_task(
     "description": "Maximum number of results (1-30)",
     "default": 10
   },
-  "time_filter": {
-    "type": "string",
-    "enum": ["day", "week", "month", "year"],
-    "description": "Filter results by time"
-  },
   "include_content": {
     "type": "boolean",
     "description": "Whether to fetch and compress article content",
@@ -444,7 +435,6 @@ async def _handle_start_vertical_search(params: Dict) -> Dict:
     query = params.get("query")
     platform = params.get("platform")
     max_results = params.get("max_results", 10)
-    time_filter = params.get("time_filter")
     include_content = params.get("include_content", True)
     
     if not query or not platform:
@@ -456,7 +446,6 @@ async def _handle_start_vertical_search(params: Dict) -> Dict:
         query=query,
         platform=platform,
         max_results=max_results,
-        time_filter=time_filter,
         include_content=include_content
     )
     
@@ -1011,49 +1000,67 @@ while True:
 
 ### Phase 1: Core Components (Day 1 Morning)
 
-- [ ] Create `core/task_manager.py`
-  - [ ] SearchTask dataclass
-  - [ ] TaskStatus enum
-  - [ ] TaskProgress dataclass
-  - [ ] TaskManager class
-  - [ ] Background cleanup loop
+- [x] Create `core/task_manager.py`
+  - [x] SearchTask dataclass
+  - [x] TaskStatus enum
+  - [x] TaskProgress dataclass
+  - [x] TaskManager class
+  - [x] Background cleanup loop
   
-- [ ] Create unit tests (`tests/unit/test_task_manager.py`)
-  - [ ] Test task creation
-  - [ ] Test progress updates
-  - [ ] Test status transitions
-  - [ ] Test cleanup
+- [x] Create unit tests (`tests/unit/test_task_manager.py`)
+  - [x] Test task creation
+  - [x] Test progress updates
+  - [x] Test status transitions
+  - [x] Test cleanup
 
 ### Phase 2: MCP Integration (Day 1 Afternoon)
 
-- [ ] Add tools to `mcp_server.py`
-  - [ ] `start_vertical_search`
-  - [ ] `get_search_status`
-  - [ ] `cancel_search` (optional)
+- [x] Add tools to `mcp_server.py`
+  - [x] `start_vertical_search`
+  - [x] `get_search_status`
+  - [x] `cancel_search` (optional)
   
-- [ ] Implement background execution
-  - [ ] `_execute_search_task` function
-  - [ ] Progress callback integration
+- [x] Implement background execution
+  - [x] `_execute_search_task` function
+  - [x] Progress callback integration
   
-- [ ] Add integration tests (`tests/integration/test_async_search.py`)
-  - [ ] Test full workflow
-  - [ ] Test concurrent tasks
-  - [ ] Test error handling
+- [x] Add integration tests (`tests/integration/test_async_search.py`)
+  - [x] Test full workflow
+  - [x] Test concurrent tasks
+  - [x] Test error handling
 
 ### Phase 3: Progress Callbacks (Day 2 Morning)
 
-- [ ] Add progress callback to SearchManager
-- [ ] Add progress callback to ContentProcessor
-- [ ] Add progress callback to URLResolver
-- [ ] Test progress updates at each stage
+- [x] Add progress callback to SearchManager
+- [x] Add progress callback to ContentProcessor
+- [x] Add progress callback to URLResolver (skipped - URL resolution is fast)
+- [x] Test progress updates at each stage
 
 ### Phase 4: Testing & Documentation (Day 2 Afternoon)
 
-- [ ] End-to-end tests
-- [ ] Load tests (10 concurrent tasks)
-- [ ] Update README.md
-- [ ] Update design docs
-- [ ] Create migration guide
+- [x] End-to-end tests
+- [x] Load tests (10 concurrent tasks)
+- [x] Update README.md
+- [x] Update design docs
+- [x] Create migration guide
+
+## Implementation Status
+
+**Status**: ✅ **COMPLETED**
+
+All phases have been implemented and tested. The unified async mode is now the default for all search operations.
+
+### Key Implementation Notes
+
+1. **Unified Async Mode**: All searches use async mode through `start_vertical_search` + `get_search_status`. The old synchronous `search_vertical` tool has been removed.
+
+2. **Fast Completion Detection**: Tasks that complete in < 1 second return results directly from `start_vertical_search`, avoiding unnecessary polling.
+
+3. **Progress Callbacks**: Progress is reported at key stages (searching, fetching_content, compressing) through the `get_search_status` tool.
+
+4. **Task Management**: Tasks are stored in-memory and automatically cleaned up after 30 minutes of inactivity.
+
+5. **Error Handling**: All errors are captured and reported through the task status, ensuring tasks never get stuck in a running state.
 
 ---
 
