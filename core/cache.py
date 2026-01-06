@@ -69,7 +69,13 @@ class SearchCache:
             current_time = time.time()
 
             # Check if entry has expired
-            if current_time - timestamp < self.ttl:
+            # If timestamp > current_time, it's an expiration time (custom TTL)
+            # If timestamp < current_time, it's a creation time (use default TTL)
+            if timestamp > current_time:
+                # Custom TTL: timestamp is expiration time
+                return value
+            elif current_time - timestamp < self.ttl:
+                # Default TTL: timestamp is creation time
                 return value
             else:
                 # Remove expired entry
@@ -106,3 +112,72 @@ class SearchCache:
             Cache key string
         """
         return self._generate_key(platform, query, params)
+
+    def get_content(self, url_hash: str) -> Optional[str]:
+        """
+        Get cached article content.
+
+        Args:
+            url_hash: URL hash (MD5) used as cache key
+
+        Returns:
+            Cached content string if found and not expired, None otherwise
+        """
+        key = f"content:{url_hash}"
+        result = self.get(key)
+        if result is not None:
+            return result  # type: ignore[return-value]
+        return None
+
+    def set_content(self, url_hash: str, content: str, ttl: int = 3600) -> None:
+        """
+        Cache article content with custom TTL.
+
+        Args:
+            url_hash: URL hash (MD5) used as cache key
+            content: Content string to cache
+            ttl: Time to live in seconds (default: 3600 = 1 hour)
+        """
+        key = f"content:{url_hash}"
+        # Store with custom TTL by using a separate cache entry with timestamp
+        # We'll override the default TTL by storing timestamp manually
+        import time
+
+        self.cache[key] = (content, time.time() + ttl)
+
+    def get_compressed(
+        self, url_hash: str, max_tokens: int
+    ) -> Optional[str]:
+        """
+        Get cached compressed content.
+
+        Args:
+            url_hash: URL hash (MD5) used as cache key
+            max_tokens: Maximum tokens used for compression (part of cache key)
+
+        Returns:
+            Cached compressed content if found and not expired, None otherwise
+        """
+        key = f"compressed:{url_hash}:{max_tokens}"
+        result = self.get(key)
+        if result is not None:
+            return result  # type: ignore[return-value]
+        return None
+
+    def set_compressed(
+        self, url_hash: str, max_tokens: int, content: str, ttl: int = 86400
+    ) -> None:
+        """
+        Cache compressed content with custom TTL.
+
+        Args:
+            url_hash: URL hash (MD5) used as cache key
+            max_tokens: Maximum tokens used for compression (part of cache key)
+            content: Compressed content string to cache
+            ttl: Time to live in seconds (default: 86400 = 24 hours)
+        """
+        key = f"compressed:{url_hash}:{max_tokens}"
+        # Store with custom TTL
+        import time
+
+        self.cache[key] = (content, time.time() + ttl)

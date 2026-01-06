@@ -34,6 +34,24 @@ weixin:
     name: "WeChat"
     display_name: "微信公众号"
     description: "Search WeChat public account articles"
+  
+  # Content extraction selectors for full article content
+  content_selectors:
+    # Main content container selectors (tried in order)
+    main_content:
+      - "#js_content"  # Primary content container
+      - ".rich_media_content"
+      - "article"
+    
+    # Elements to remove before extraction
+    elements_to_remove:
+      - ".qr_code_pc"  # QR code
+      - ".reward_qr_code"  # Reward QR code
+      - "#js_pc_qr_code"
+      - ".original_primary_card"  # Original tag card
+      - "script"
+      - "style"
+      - ".mp_profile_iframe"  # Public account profile
 
 zhihu:
   # Base URL for Zhihu search on Sogou
@@ -68,4 +86,22 @@ zhihu:
     name: "Zhihu"
     display_name: "知乎"
     description: "Search Zhihu content"
+  
+  # Content extraction selectors for full article content
+  content_selectors:
+    # Main content container selectors (tried in order)
+    # For answer pages
+    main_content:
+      - ".RichContent-inner"  # Answer content
+      - ".Post-RichText"  # Post content
+      - ".RichText"  # Generic rich text
+    
+    # Elements to remove before extraction
+    elements_to_remove:
+      - ".ContentItem-actions"  # Action buttons
+      - ".RichText-ADLinkCardContainer"  # Ad cards
+      - ".LinkCard"  # Link cards
+      - ".VideoCard"  # Video cards (cannot extract)
+      - "script"
+      - "style"
 

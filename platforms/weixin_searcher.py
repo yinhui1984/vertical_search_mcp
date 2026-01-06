@@ -227,35 +227,145 @@ class WeixinSearcher(BasePlatformSearcher):
                     f"Found {len(redirect_urls)} redirect URLs, {len(redirect_indices)} indices"
                 )
 
-                # Get all link elements from search results page
-                selectors = self.config.get("selectors", {}).get("article_list", [])
-                all_link_elements = []
-                for selector in selectors:
-                    try:
-                        elements = await page.query_selector_all(selector)
-                        if elements:
-                            self.logger.debug(
-                                f"Found {len(elements)} elements with selector: {selector}"
-                            )
-                            for element in elements:
+                # Track current page to avoid unnecessary navigation
+                current_page_num: int = 0  # 0 means unknown
+                
+                # Helper function to navigate to a specific page
+                async def navigate_to_page(page_num: int) -> bool:
+                    """Navigate to a specific page number (1-based)."""
+                    nonlocal current_page_num
+                    
+                    # If already on the target page, no need to navigate
+                    if current_page_num == page_num:
+                        return True
+                    
+                    if page_num == 1:
+                        # Navigate to first page
+                        try:
+                            first_page_selectors = [
+                                "a#sogou_page_1",
+                                "a[href*='page=1']",
+                                ".page a:has-text('1')",
+                            ]
+                            for selector in first_page_selectors:
+                                try:
+                                    first_page_btn = await page.query_selector(selector)
+                                    if first_page_btn:
+                                        await first_page_btn.click()
+                                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                                        # Wait for results to load
+                                        selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                                        for sel in selectors_list:
+                                            try:
+                                                await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                                current_page_num = 1
+                                                return True
+                                            except Exception:
+                                                continue
+                                        current_page_num = 1
+                                        return True
+                                except Exception:
+                                    continue
+                            
+                            # If no first page button found, reload the search URL
+                            self.logger.debug("No first page button found, reloading search URL")
+                            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                            selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                            for sel in selectors_list:
+                                try:
+                                    await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                    current_page_num = 1
+                                    return True
+                                except Exception:
+                                    continue
+                            current_page_num = 1
+                            return True
+                        except Exception as e:
+                            self.logger.warning(f"Failed to navigate to first page: {e}, reloading URL")
+                            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                            selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                            for sel in selectors_list:
+                                try:
+                                    await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                    current_page_num = 1
+                                    return True
+                                except Exception:
+                                    continue
+                            current_page_num = 1
+                            return True
+                    else:
+                        # Navigate to specific page number
+                        # First ensure we're on page 1, then navigate forward
+                        if not await navigate_to_page(1):
+                            return False
+                        
+                        # Navigate forward to target page
+                        for _ in range(page_num - 1):
+                            next_page_selector = self.config.get("selectors", {}).get("next_page")
+                            if not next_page_selector:
+                                return False
+                            
+                            try:
+                                next_button = await page.query_selector(next_page_selector)
+                                if not next_button:
+                                    return False
+                                
+                                is_disabled = await next_button.get_attribute("disabled")
+                                class_name = await next_button.get_attribute("class") or ""
+                                if is_disabled or "disabled" in class_name.lower() or "nop" in class_name.lower():
+                                    return False
+                                
+                                await next_button.click()
+                                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                                # Wait for results to load
+                                selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                                for sel in selectors_list:
+                                    try:
+                                        await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                        break
+                                    except Exception:
+                                        continue
+                                # Update current page number (we're moving forward one page at a time)
+                                current_page_num += 1
+                            except Exception as e:
+                                self.logger.warning(f"Error navigating to page {page_num}: {e}")
+                                return False
+                        
+                        # Update current page number to target page
+                        current_page_num = page_num
+                        return True
+                
+                # Helper function to get link element by result index
+                async def get_link_element_by_index(result_idx: int) -> Optional[ElementHandle]:
+                    """Get link element for a specific result index by navigating to the correct page."""
+                    # Calculate which page this result is on (0-based page index)
+                    page_index = result_idx // RESULTS_PER_PAGE  # 0-based
+                    page_num = page_index + 1  # 1-based
+                    page_result_idx = result_idx % RESULTS_PER_PAGE  # Index within the page
+                    
+                    # Navigate to the correct page
+                    if not await navigate_to_page(page_num):
+                        self.logger.warning(f"Failed to navigate to page {page_num} for result index {result_idx}")
+                        return None
+                    
+                    # Find the link element on current page
+                    selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                    for selector in selectors_list:
+                        try:
+                            elements = await page.query_selector_all(selector)
+                            if elements and page_result_idx < len(elements):
+                                element = elements[page_result_idx]
                                 link_elem = await element.query_selector("a")
                                 if link_elem:
-                                    all_link_elements.append(link_elem)
-                            if all_link_elements:
-                                self.logger.debug(f"Found {len(all_link_elements)} link elements")
-                                break
-                    except Exception as e:
-                        self.logger.debug(f"Error with selector {selector}: {e}")
-                        continue
-
-                if not all_link_elements:
-                    self.logger.warning("No link elements found on search results page")
-                else:
-                    self.logger.debug(
-                        f"Total link elements found: {len(all_link_elements)}, need to resolve: {len(redirect_indices)}"
-                    )
+                                    return link_elem
+                        except Exception as e:
+                            self.logger.debug(f"Error with selector {selector} on page {page_num}: {e}")
+                            continue
+                    
+                    return None
 
                 # Resolve URLs by clicking links on the search results page
+                # We navigate to the correct page for each link to avoid stale element references
                 resolved_urls: List[Optional[str]] = []
                 for idx, result_idx in enumerate(redirect_indices):
                     try:
@@ -263,71 +373,72 @@ class WeixinSearcher(BasePlatformSearcher):
                             f"Resolving URL {idx + 1}/{len(redirect_indices)} (result index {result_idx}): {redirect_urls[idx][:80]}..."
                         )
 
-                        # Use the link element at the same index as the result
-                        if result_idx < len(all_link_elements):
-                            link_element = all_link_elements[result_idx]
+                        # Get link element by navigating to the correct page
+                        link_element = await get_link_element_by_index(result_idx)
+                        
+                        if not link_element:
+                            self.logger.warning(
+                                f"Could not find link element for result index {result_idx}"
+                            )
+                            resolved_urls.append(None)
+                            continue
 
-                            # Click the link and wait for new page/tab to open
+                        # Click the link and wait for new page/tab to open
+                        try:
+                            self.logger.debug(f"Clicking link element at index {result_idx}")
+                            async with page.context.expect_page(timeout=8000) as new_page_info:
+                                await link_element.click(
+                                    modifiers=["Meta"]
+                                )  # Cmd+Click to open in new tab
+
+                            new_page = await new_page_info.value
+
+                            # Wait for page to navigate away from about:blank
+                            # Try multiple wait strategies to ensure we get the final URL
                             try:
-                                self.logger.debug(f"Clicking link element at index {result_idx}")
-                                async with page.context.expect_page(timeout=8000) as new_page_info:
-                                    await link_element.click(
-                                        modifiers=["Meta"]
-                                    )  # Cmd+Click to open in new tab
-
-                                new_page = await new_page_info.value
-
-                                # Wait for page to navigate away from about:blank
-                                # Try multiple wait strategies to ensure we get the final URL
+                                # Wait for navigation to complete
+                                await new_page.wait_for_load_state("networkidle", timeout=15000)
+                            except Exception:
+                                # If networkidle times out, try domcontentloaded
                                 try:
-                                    # Wait for navigation to complete
-                                    await new_page.wait_for_load_state("networkidle", timeout=15000)
+                                    await new_page.wait_for_load_state(
+                                        "domcontentloaded", timeout=10000
+                                    )
                                 except Exception:
-                                    # If networkidle times out, try domcontentloaded
-                                    try:
-                                        await new_page.wait_for_load_state(
-                                            "domcontentloaded", timeout=10000
-                                        )
-                                    except Exception:
-                                        # If that also fails, wait a bit and check URL
-                                        await asyncio.sleep(2)
+                                    # If that also fails, wait a bit and check URL
+                                    await asyncio.sleep(2)
 
-                                # Wait for URL to change from about:blank
-                                max_wait_attempts = 10
-                                wait_interval = 0.5
+                            # Wait for URL to change from about:blank
+                            max_wait_attempts = 10
+                            wait_interval = 0.5
+                            new_page_url = new_page.url
+                            for attempt in range(max_wait_attempts):
+                                if new_page_url != "about:blank" and new_page_url:
+                                    break
+                                await asyncio.sleep(wait_interval)
                                 new_page_url = new_page.url
-                                for attempt in range(max_wait_attempts):
-                                    if new_page_url != "about:blank" and new_page_url:
-                                        break
-                                    await asyncio.sleep(wait_interval)
-                                    new_page_url = new_page.url
 
-                                self.logger.info(f"New page opened with URL: {new_page_url}")
+                            self.logger.info(f"New page opened with URL: {new_page_url}")
 
-                                # Check if it's a target domain
-                                if (
-                                    any(domain in new_page_url for domain in target_domains)
-                                    and "sogou.com" not in new_page_url
-                                ):
-                                    resolved_urls.append(new_page_url)
-                                    self.logger.info(
-                                        f"Successfully resolved URL {idx + 1}: {new_page_url}"
-                                    )
-                                    await new_page.close()
-                                else:
-                                    self.logger.warning(
-                                        f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
-                                    )
-                                    resolved_urls.append(None)
-                                    await new_page.close()
-                            except Exception as e:
-                                self.logger.error(
-                                    f"Error clicking link {idx + 1}: {e}", exc_info=True
+                            # Check if it's a target domain
+                            if (
+                                any(domain in new_page_url for domain in target_domains)
+                                and "sogou.com" not in new_page_url
+                            ):
+                                resolved_urls.append(new_page_url)
+                                self.logger.info(
+                                    f"Successfully resolved URL {idx + 1}: {new_page_url}"
+                                )
+                                await new_page.close()
+                            else:
+                                self.logger.warning(
+                                    f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
                                 )
                                 resolved_urls.append(None)
-                        else:
-                            self.logger.warning(
-                                f"Could not find link element for result index {result_idx} (only {len(all_link_elements)} link elements available)"
+                                await new_page.close()
+                        except Exception as e:
+                            self.logger.error(
+                                f"Error clicking link {idx + 1}: {e}", exc_info=True
                             )
                             resolved_urls.append(None)
 

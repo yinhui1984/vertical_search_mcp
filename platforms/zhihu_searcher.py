@@ -269,11 +269,21 @@ class ZhihuSearcher(BasePlatformSearcher):
                                     any(domain in new_page_url for domain in target_domains)
                                     and "sogou.com" not in new_page_url
                                 ):
-                                    resolved_urls.append(new_page_url)
-                                    self.logger.info(
-                                        f"Successfully resolved URL {idx + 1}: {new_page_url}"
-                                    )
-                                    await new_page.close()
+                                    # Check if the resolved URL is an anti-crawler page
+                                    detection = await self.detector.detect(new_page, platform="zhihu")
+                                    if detection.detected:
+                                        self.logger.warning(
+                                            f"Anti-crawler page detected for resolved URL {idx + 1}: "
+                                            f"{detection.detection_type.value}, URL: {new_page_url}"
+                                        )
+                                        resolved_urls.append(None)
+                                        await new_page.close()
+                                    else:
+                                        resolved_urls.append(new_page_url)
+                                        self.logger.info(
+                                            f"Successfully resolved URL {idx + 1}: {new_page_url}"
+                                        )
+                                        await new_page.close()
                                 else:
                                     self.logger.warning(
                                         f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
@@ -297,11 +307,23 @@ class ZhihuSearcher(BasePlatformSearcher):
                         self.logger.warning(f"Error resolving URL {idx + 1}: {e}")
                         resolved_urls.append(None)
 
-                # Update results with resolved URLs
+                # Update results with resolved URLs, remove results with failed resolution
+                indices_to_remove = []
                 for i, resolved_url in zip(redirect_indices, resolved_urls):
                     if resolved_url:
                         results[i]["url"] = resolved_url
                         self.logger.debug(f"Updated result {i} with resolved URL")
+                    else:
+                        # Mark result for removal if URL resolution failed (anti-crawler detected)
+                        indices_to_remove.append(i)
+                        self.logger.warning(
+                            f"URL resolution failed for result {i}, will remove from results"
+                        )
+                
+                # Remove failed results in reverse order to maintain indices
+                for i in sorted(indices_to_remove, reverse=True):
+                    removed_result = results.pop(i)
+                    self.logger.debug(f"Removed result with failed URL resolution: {removed_result.get('title', 'Unknown')}")
 
             # Close the search page
             await page.close()

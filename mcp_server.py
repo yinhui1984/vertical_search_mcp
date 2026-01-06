@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional
 from core.logger import setup_logger, get_logger
 from core.search_manager import UnifiedSearchManager
 from platforms.weixin_searcher import WeixinSearcher
-from platforms.zhihu_searcher import ZhihuSearcher
+# Zhihu searcher import disabled by default
+# from platforms.zhihu_searcher import ZhihuSearcher
 
 
 class MCPServer:
@@ -48,14 +49,16 @@ class MCPServer:
 
         This method:
         1. Creates UnifiedSearchManager instance
-        2. Registers all available platforms (weixin, zhihu)
+        2. Registers available platforms (weixin by default, zhihu disabled due to anti-crawler issues)
         3. Initializes browser pool
         """
         self.manager = UnifiedSearchManager()
 
         # Register platforms
         self.manager.register_platform("weixin", WeixinSearcher(self.manager.browser_pool))
-        self.manager.register_platform("zhihu", ZhihuSearcher(self.manager.browser_pool))
+        # Zhihu platform disabled by default due to aggressive anti-crawler measures
+        # Uncomment the line below to enable Zhihu search (may not work reliably)
+        # self.manager.register_platform("zhihu", ZhihuSearcher(self.manager.browser_pool))
 
         self.logger.info("Vertical Search MCP Server started")
         self.logger.info(f"Registered platforms: {self.manager.get_registered_platforms()}")
@@ -126,8 +129,8 @@ class MCPServer:
                     "properties": {
                         "platform": {
                             "type": "string",
-                            "description": "Platform to search (weixin, zhihu)",
-                            "enum": ["weixin", "zhihu"],
+                            "description": "Platform to search (weixin). Note: zhihu is disabled by default due to anti-crawler measures.",
+                            "enum": ["weixin"],
                         },
                         "query": {
                             "type": "string",
@@ -146,6 +149,11 @@ class MCPServer:
                             "type": "string",
                             "description": "Time filter for results",
                             "enum": ["day", "week", "month", "year"],
+                        },
+                        "include_content": {
+                            "type": "boolean",
+                            "description": "Whether to include full article content (default: true). Content is automatically compressed if it exceeds token limits.",
+                            "default": True,
                         },
                     },
                     "required": ["platform", "query"],
@@ -243,6 +251,7 @@ class MCPServer:
         # Get optional parameters
         max_results = arguments.get("max_results", 10)
         time_filter = arguments.get("time_filter")
+        include_content = arguments.get("include_content", True)
 
         # Validate max_results
         if not isinstance(max_results, int) or max_results < 1 or max_results > 30:
@@ -279,6 +288,7 @@ class MCPServer:
                 max_results=max_results,
                 time_filter=time_filter,
                 use_cache=True,
+                include_content=include_content,
             )
 
             elapsed_time = time.time() - start_time
@@ -351,6 +361,8 @@ class MCPServer:
             source = result.get("source", "")
             date = result.get("date", "")
             snippet = result.get("snippet", "")
+            content = result.get("content", "")
+            content_status = result.get("content_status", "")
 
             result_text += f"{i}. **{title}**\n"
             if source:
@@ -363,6 +375,25 @@ class MCPServer:
                 result_text += f"   Summary: {snippet_text}\n"
             if url:
                 result_text += f"   Link: {url}\n"
+            if content:
+                # Include full content if present
+                content_status_text = ""
+                if content_status:
+                    status_map = {
+                        "fetched": "",
+                        "compressed": " (compressed)",
+                        "batch_compressed": " (batch compressed)",
+                        "truncated": " (truncated)",
+                        "fetch_failed": " (content fetch failed)",
+                    }
+                    content_status_text = status_map.get(content_status, "")
+                result_text += f"   Content{content_status_text}:\n"
+                # Truncate very long content for display (keep first 2000 chars)
+                if len(content) > 2000:
+                    result_text += f"   {content[:2000]}...\n"
+                    result_text += f"   [Content truncated for display, full length: {len(content)} characters]\n"
+                else:
+                    result_text += f"   {content}\n"
             result_text += "\n"
 
         return result_text

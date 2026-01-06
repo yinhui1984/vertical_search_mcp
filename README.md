@@ -7,6 +7,7 @@ A scalable vertical search MCP (Model Context Protocol) server supporting multip
 - **Multi-platform support**: Default support for WeChat and Zhihu, easily extensible to other platforms
 - **High performance**: Browser reuse mechanism, 5x speed improvement
 - **Real URL resolution**: Automatically resolves redirect links to get final destination URLs (e.g., `mp.weixin.qq.com` for WeChat, `zhihu.com` for Zhihu)
+- **Content fetching and compression**: Fetch full article content with intelligent compression using DeepSeek API
 - **High extensibility**: New platform integration takes only 1-2 hours
 - **Production-ready stability**: Comprehensive error handling and monitoring
 
@@ -41,6 +42,7 @@ A scalable vertical search MCP (Model Context Protocol) server supporting multip
 - Python 3.12+
 - Playwright 1.40.0+
 - PyYAML 6.0+
+- OpenAI SDK 1.0.0+ (for DeepSeek API compatibility)
 
 ## Installation
 
@@ -85,7 +87,10 @@ Configure the MCP server in Claude Desktop's settings file:
   "mcpServers": {
     "vertical-search": {
       "command": "/path/to/vertical-search-mcp/.venv/bin/python",
-      "args": ["/path/to/vertical-search-mcp/mcp_server.py"]
+      "args": ["/path/to/vertical-search-mcp/mcp_server.py"],
+      "env": {
+        "APIKEY_DEEPSEEK": "your-deepseek-api-key-here"
+      }
     }
   }
 }
@@ -95,9 +100,28 @@ Configure the MCP server in Claude Desktop's settings file:
 - Replace `/path/to/vertical-search-mcp` with the actual path to your project directory
 - Use the Python interpreter from your virtual environment (`.venv/bin/python`)
 - If you're using a system-wide Python, you can use `python3` or the full path to your Python interpreter
+- **API Key for Content Compression**: Add `APIKEY_DEEPSEEK` in the `env` field if you need intelligent content compression
+  - Get your API key from: https://platform.deepseek.com/
+  - **When API key is required**: For long articles (exceeding 3000 tokens), the system uses DeepSeek API to intelligently compress content while preserving key information. Without the API key, long articles will be truncated, potentially losing important content.
+  - **When API key is optional**: For short articles (under 3000 tokens), compression is not needed, so the API key is not required.
 - After updating the config, restart Claude Desktop
 
 #### Tool: `search_vertical`
+
+**Parameters:**
+- `platform` (required): Platform to search (`weixin` or `zhihu`)
+- `query` (required): Search query string
+- `max_results` (optional): Maximum number of results (1-30, default: 10)
+- `time_filter` (optional): Time filter (`day`, `week`, `month`, `year`)
+- `include_content` (optional): Whether to include full article content (default: `true`)
+
+**Note on `include_content` parameter:**
+- When `include_content=true` (default): Fetches full article content and intelligently compresses it to stay within token limits
+  - **Short articles (≤3000 tokens)**: No compression needed, works without `APIKEY_DEEPSEEK`
+  - **Long articles (>3000 tokens)**: DeepSeek API key recommended
+    - With API key (`APIKEY_DEEPSEEK`): Uses DeepSeek to compress while preserving key information, conclusions, and important details
+    - Without API key: Falls back to safe truncation strategy, potentially losing tail content
+- When `include_content=false`: Returns only titles, URLs, snippets
 
 The MCP server provides a single tool called `search_vertical` that supports searching multiple platforms.
 
@@ -285,6 +309,15 @@ Each result dictionary contains the following fields:
 - **source** (str): Source platform name (e.g., "微信公众号", "知乎")
 - **date** (str): Publication date (may be empty if not available)
 - **snippet** (str): Article snippet/description (may be empty if not available)
+- **content** (str, optional): Full article content (only when `include_content=true`)
+  - May be compressed if it exceeds token limits
+  - Status indicated by `content_status` field
+- **content_status** (str, optional): Content processing status
+  - `"fetched"`: Content successfully fetched
+  - `"compressed"`: Content was compressed using DeepSeek API
+  - `"batch_compressed"`: Content was batch compressed with other articles
+  - `"truncated"`: Content was truncated (compression failed or too large)
+  - `"fetch_failed"`: Failed to fetch content
 
 ## Development
 
@@ -324,12 +357,18 @@ vertical-search-mcp/
 │   ├── cache.py               # Cache layer
 │   ├── base_searcher.py       # Base searcher class
 │   ├── search_manager.py      # Unified manager
-│   └── url_resolver.py        # URL resolver (redirect to real links)
+│   ├── url_resolver.py        # URL resolver (redirect to real links)
+│   ├── content_fetcher.py     # Article content fetcher
+│   ├── content_compressor.py  # Content compressor (DeepSeek API)
+│   ├── content_processor.py   # Content processing coordinator
+│   └── token_estimator.py    # Token estimation
 ├── platforms/                 # Platform adapters
 │   ├── weixin_searcher.py     # WeChat searcher
 │   └── zhihu_searcher.py      # Zhihu searcher
 ├── config/                    # Configuration files
-│   └── platforms.yaml         # Platform configurations
+│   ├── platforms.yaml         # Platform configurations
+│   ├── compression.yaml       # Content compression settings
+│   └── anti_crawler.yaml      # Anti-crawler protection settings
 ├── tests/                     # Test files
 │   ├── unit/                  # Unit tests
 │   ├── integration/           # Integration tests

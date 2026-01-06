@@ -1,0 +1,30 @@
+# Compression configuration for article content
+# This configuration controls how article content is fetched and compressed
+
+compression:
+  # Enable/disable compression feature
+  enabled: true
+  
+  # DeepSeek API configuration
+  api:
+    provider: "deepseek"
+    model: "deepseek-chat"  # Recommended: deepseek-chat (V3, cost-effective)
+    timeout: 30  # API call timeout in seconds
+    max_retries: 2  # Maximum retry attempts on failure
+  
+  # Compression thresholds (in tokens)
+  thresholds:
+    single_article: 3000  # Compress single article if > 3000 tokens
+    total_content: 50000  # Batch compress if total > 50000 tokens
+    final_output: 80000  # Final output limit (100K - 20K safety margin)
+  
+  # Content fetching configuration
+  fetch:
+    concurrency: 5  # Maximum concurrent content fetches
+    timeout: 10  # Single article fetch timeout in seconds
+  
+  # Cache configuration
+  cache:
+    content_ttl: 3600  # Content cache TTL: 1 hour
+    compressed_ttl: 86400  # Compressed content cache TTL: 24 hours
+

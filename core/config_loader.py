@@ -78,3 +78,47 @@ def load_anti_crawler_config() -> Dict[str, Any]:
 
     return config
 
+
+def load_compression_config() -> Dict[str, Any]:
+    """
+    Load compression configuration from YAML file.
+
+    Returns:
+        Dictionary containing compression configuration
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        yaml.YAMLError: If YAML parsing fails
+    """
+    # Get config file path relative to project root
+    config_path = Path(__file__).parent.parent / "config" / "compression.yaml"
+
+    if not config_path.exists():
+        logger.warning(
+            f"Compression config file not found: {config_path}, using defaults"
+        )
+        # Return default configuration
+        return {
+            "compression": {
+                "enabled": True,
+                "api": {
+                    "provider": "deepseek",
+                    "model": "deepseek-chat",
+                    "timeout": 30,
+                    "max_retries": 2,
+                },
+                "thresholds": {
+                    "single_article": 3000,
+                    "total_content": 50000,
+                    "final_output": 80000,
+                },
+                "fetch": {"concurrency": 5, "timeout": 10},
+                "cache": {"content_ttl": 3600, "compressed_ttl": 86400},
+            }
+        }
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config: Dict[str, Any] = yaml.safe_load(f) or {}
+
+    return config
+

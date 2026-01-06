@@ -8,7 +8,7 @@ This module implements the unified search manager that handles:
 - Anti-crawler protection (rate limiting, delays, detection)
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
 from core.base_searcher import BasePlatformSearcher
@@ -17,6 +17,9 @@ from core.rate_limiter import RateLimitManager
 from core.delay_manager import DelayManager
 from core.config_loader import load_anti_crawler_config
 from core.exceptions import RateLimitExceeded
+from core.content_processor import ContentProcessor
+import yaml
+from pathlib import Path
 
 
 class UnifiedSearchManager:
@@ -39,6 +42,9 @@ class UnifiedSearchManager:
         self.searchers: Dict[str, BasePlatformSearcher] = {}
         self.logger = get_logger("vertical_search.search_manager")
 
+        # Load platform configuration
+        self._platform_config = self._load_platform_config()
+
         # Load anti-crawler configuration
         try:
             self._anti_crawler_config = load_anti_crawler_config()
@@ -55,6 +61,9 @@ class UnifiedSearchManager:
             # Create dummy components that don't do anything
             self.rate_limiter = RateLimitManager({})
             self.delay_manager = DelayManager({})
+
+        # Content processor (lazy initialization)
+        self._content_processor: Optional[ContentProcessor] = None
 
     def register_platform(self, platform: str, searcher: BasePlatformSearcher) -> None:
         """
@@ -82,6 +91,7 @@ class UnifiedSearchManager:
         max_results: int = 10,
         time_filter: Optional[str] = None,
         use_cache: bool = True,
+        include_content: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Execute search on specified platform.
@@ -99,9 +109,10 @@ class UnifiedSearchManager:
             max_results: Maximum number of results to return (max: 30)
             time_filter: Optional time filter (e.g., 'day', 'week', 'month')
             use_cache: Whether to use cache (default: True)
+            include_content: Whether to fetch and include full article content (default: False)
 
         Returns:
-            List of search result dictionaries
+            List of search result dictionaries (with 'content' field if include_content=True)
 
         Raises:
             ValueError: If platform is not registered or max_results > 30
@@ -161,6 +172,20 @@ class UnifiedSearchManager:
                 self.logger.debug(f"Cached results for {platform}:{query}")
 
             self.logger.info(f"Search completed: {len(results)} results for {platform}:{query}")
+
+            # Process content if requested
+            if include_content:
+                try:
+                    self.logger.info(f"Processing content for {len(results)} results")
+                    results = await self._process_content(results, platform)
+                    self.logger.info(f"Content processing completed for {platform}:{query}")
+                except Exception as e:
+                    self.logger.error(
+                        f"Content processing failed: {e}, returning results without content",
+                        exc_info=True,
+                    )
+                    # Continue with results without content rather than failing
+
             return results
 
         except Exception as e:
@@ -176,6 +201,62 @@ class UnifiedSearchManager:
             List of registered platform names
         """
         return list(self.searchers.keys())
+
+    def _load_platform_config(self) -> Dict[str, Any]:
+        """
+        Load platform configuration from YAML file.
+
+        Returns:
+            Dictionary containing platform configuration
+        """
+        config_path = Path(__file__).parent.parent / "config" / "platforms.yaml"
+
+        if not config_path.exists():
+            self.logger.warning(f"Platform config file not found: {config_path}")
+            return {}
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config: Dict[str, Any] = yaml.safe_load(f) or {}
+            return config
+        except Exception as e:
+            self.logger.error(f"Failed to load platform config: {e}")
+            return {}
+
+    def _get_content_processor(self) -> ContentProcessor:
+        """
+        Get or create content processor instance.
+
+        Returns:
+            ContentProcessor instance
+        """
+        if self._content_processor is None:
+            from core.config_loader import load_compression_config
+
+            compression_config = load_compression_config()
+            self._content_processor = ContentProcessor(
+                browser_pool=self.browser_pool,
+                cache=self.cache,
+                platform_config=self._platform_config,
+                compression_config=compression_config,
+            )
+        return self._content_processor
+
+    async def _process_content(
+        self, results: List[Dict[str, str]], platform: str
+    ) -> List[Dict[str, str]]:
+        """
+        Process content for search results.
+
+        Args:
+            results: List of search result dictionaries
+            platform: Platform name
+
+        Returns:
+            List of results with content added
+        """
+        processor = self._get_content_processor()
+        return await processor.process_results(results, platform)
 
     async def close(self) -> None:
         """

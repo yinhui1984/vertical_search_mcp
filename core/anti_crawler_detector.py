@@ -190,21 +190,54 @@ class AntiCrawlerDetector:
                             details=f"Content pattern '{pattern}' matched",
                         )
 
-            # Check global detection patterns
+            # Check global detection patterns with more precise matching
             for detection_type, detection_config in self._detection_config.items():
                 patterns = detection_config.get("patterns", [])
                 for pattern in patterns:
-                    if pattern.lower() in content_lower:
-                        detection_enum = self._get_detection_type_from_string(detection_type)
-                        logger.warning(
-                            f"{detection_enum.value} detected by content pattern '{pattern}'"
-                        )
-                        return DetectionResult(
-                            detected=True,
-                            detection_type=detection_enum,
-                            confidence=0.9,
-                            details=f"Content pattern '{pattern}' matched",
-                        )
+                    # For captcha detection, use more precise matching
+                    if detection_type == "captcha":
+                        # Check if pattern appears in context that suggests captcha
+                        # Look for captcha-related keywords nearby
+                        pattern_lower = pattern.lower()
+                        if pattern_lower in content_lower:
+                            # Additional context checks for captcha
+                            captcha_contexts = [
+                                "验证码", "captcha", "verify code", "verification code",
+                                "请输入", "please enter", "输入验证码", "enter code"
+                            ]
+                            # Check if captcha context appears near the pattern
+                            pattern_index = content_lower.find(pattern_lower)
+                            if pattern_index >= 0:
+                                # Check surrounding context (200 chars before and after)
+                                context_start = max(0, pattern_index - 200)
+                                context_end = min(len(content_lower), pattern_index + len(pattern_lower) + 200)
+                                context = content_lower[context_start:context_end]
+                                
+                                # Only trigger if captcha context is found
+                                if any(ctx in context for ctx in captcha_contexts):
+                                    detection_enum = self._get_detection_type_from_string(detection_type)
+                                    logger.warning(
+                                        f"{detection_enum.value} detected by content pattern '{pattern}' with context"
+                                    )
+                                    return DetectionResult(
+                                        detected=True,
+                                        detection_type=detection_enum,
+                                        confidence=0.9,
+                                        details=f"Content pattern '{pattern}' matched with captcha context",
+                                    )
+                    else:
+                        # For other detection types, use simple matching
+                        if pattern.lower() in content_lower:
+                            detection_enum = self._get_detection_type_from_string(detection_type)
+                            logger.warning(
+                                f"{detection_enum.value} detected by content pattern '{pattern}'"
+                            )
+                            return DetectionResult(
+                                detected=True,
+                                detection_type=detection_enum,
+                                confidence=0.9,
+                                details=f"Content pattern '{pattern}' matched",
+                            )
 
         except Exception as e:
             logger.warning(f"Error checking content patterns: {e}")
