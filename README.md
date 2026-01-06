@@ -1,5 +1,7 @@
 # Vertical Search MCP
 
+[中文文档](README_cn.md) | [English](README.md)
+
 A scalable vertical search MCP (Model Context Protocol) server supporting multiple platforms (WeChat, Zhihu, etc.).
 
 ## Features
@@ -379,12 +381,12 @@ vertical-search-mcp/
 
 ## Performance
 
-| Operation | Original | Optimized | Improvement |
-|-----------|----------|-----------|-------------|
-| First search | 5.2s | 5.1s | - |
-| Subsequent searches | 5.1s | 0.9s | **5.7x** |
-| Concurrent 3 searches | 15.3s | 3.2s | **4.8x** |
-| Cache hit | N/A | 0.01s | **∞** |
+| Operation | Optimized | Improvement |
+|-----------|-----------|-------------|
+| First search | 5.1s | - |
+| Subsequent searches | 0.9s | **5.7x** |
+| Concurrent 3 searches | 3.2s | **4.8x** |
+| Cache hit | 0.01s | **∞** |
 
 ## License
 
