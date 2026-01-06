@@ -1711,148 +1711,200 @@ class WeixinSearcher(BasePlatformSearcher):
 
 ---
 
-### Iteration 10: MCP 长任务超时与进度报告 (1 天)
+### Iteration 10: 异步任务设计 - 统一异步模式 (1 天)
 
-**目标**: 实现MCP长任务超时处理和进度报告机制，支持搜索30个结果等长时间运行的操作（可能需要5分钟），确保AI客户端能够等待任务完成或实时了解进度
+**目标**: 实现统一异步任务模式，解决所有搜索任务（包括短任务）的超时风险，提供一致的API和进度反馈
 
 **背景**: 
-- 当搜索30个结果时，操作可能需要5分钟或更长时间
-- AI客户端（如Claude Desktop）可能有默认超时设置，导致长时间任务被中断
-- 需要提供进度反馈机制，让AI了解任务执行状态
+- **问题分析**:
+  - 长任务（30个结果+内容）：2-5分钟，明显超过客户端超时（30-60秒）
+  - 短任务（10个结果，无内容）：30-45秒，也接近客户端超时
+  - 网络波动或服务器负载高时，即使是短任务也可能超时
+- **关键发现**: 
+  - 进度通知和中间响应方案无法解决超时问题（见设计文档附录）
+  - 混合模式（同步+异步）增加复杂度，AI需要判断何时使用哪种模式
+- **解决方案**: **统一异步模式** - 所有任务都使用异步模式
+  - 快速启动任务（`start_vertical_search`）→ 返回 task_id < 1秒
+  - 状态轮询（`get_search_status`）→ 每次调用 < 1秒
+  - 后台执行（服务器管理，使用 asyncio.create_task）
+  - **智能优化**: 如果任务在1秒内完成，直接返回结果（避免不必要的轮询）
+
+**核心设计**:
+- **统一API**: 所有搜索任务都通过 `start_vertical_search` + `get_search_status` 完成
+- **快速完成检测**: 任务启动后等待1秒，如果完成则直接返回结果
+- **全新工具**: 这是全新的工具集，不保留旧的同步工具
+- **进度反馈**: 所有任务都有进度更新，提升用户体验
 
 #### 执行阶段（按顺序）
 
-**阶段1: MCP进度通知实现（方案1，推荐）(3小时)**
-- [ ] 在 `mcp_server.py` 中实现 `send_progress_notification()` 方法
-  - [ ] 使用JSON-RPC通知格式（无`id`字段）
-  - [ ] 实现 `notifications/progress` 方法
-  - [ ] 定义进度通知参数格式（status, message, current, total等）
-- [ ] 在 `_handle_search_vertical()` 中集成进度报告
-  - [ ] 在搜索开始时发送初始进度通知
-  - [ ] 在搜索过程中定期发送进度更新
-  - [ ] 在内容获取过程中发送进度更新（如果include_content=True）
-- [ ] 实现 `_search_with_progress()` 方法
-  - [ ] 包装 `manager.search()` 调用
-  - [ ] 在关键步骤发送进度通知（搜索中、内容获取中、处理中等）
-- [ ] 实现 `_process_content_with_progress()` 方法
-  - [ ] 批量处理内容时发送进度更新
-  - [ ] 每处理N个结果（如5个）发送一次进度通知
-- [ ] 添加进度通知日志记录
+**阶段1: 核心组件实现 (Day 1 Morning, 4小时)**
+- [ ] 创建 `core/task_manager.py`
+  - [ ] 定义 `TaskStatus` 枚举（PENDING, RUNNING, COMPLETED, FAILED, CANCELLED）
+  - [ ] 定义 `TaskProgress` 数据类（current, total, stage, message, percentage）
+  - [ ] 定义 `SearchTask` 数据类（task_id, status, progress, query, platform, max_results, time_filter, include_content, results, error, timestamps等）
+  - [ ] 实现 `TaskManager` 单例类
+    - [ ] `create_task()` - 创建新任务，返回 task_id
+    - [ ] `get_task(task_id)` - 获取任务状态
+    - [ ] `update_task_status()` - 更新任务状态
+    - [ ] `update_task_progress()` - 更新任务进度
+    - [ ] `cancel_task()` - 取消运行中的任务
+    - [ ] `cleanup_old_tasks()` - 清理过期任务（默认30分钟）
+    - [ ] `_cleanup_loop()` - 后台清理循环（每5分钟运行一次）
+    - [ ] `list_active_tasks()` - 列出所有活跃任务
+  - [ ] 使用 `asyncio.Lock` 保证线程安全
+- [ ] 创建单元测试 `tests/unit/test_task_manager.py`
+  - [ ] 测试任务创建
+  - [ ] 测试进度更新
+  - [ ] 测试状态转换
+  - [ ] 测试清理机制
+  - [ ] 测试并发安全性
 
-**阶段2: 响应中进度信息实现（方案2，兼容方案）(2小时)**
-- [ ] 在 `_handle_search_vertical()` 中实现中间响应机制
-  - [ ] 在搜索开始时发送中间响应（`isIncomplete: true`）
-  - [ ] 在最终结果返回时发送完整响应（`isIncomplete: false`）
-- [ ] 实现进度信息格式化
-  - [ ] 在响应中包含当前进度信息（如"正在搜索...已找到X个结果"）
-  - [ ] 在响应中包含预计剩余时间（可选）
-- [ ] 添加降级策略
-  - [ ] 如果客户端不支持进度通知，使用中间响应方案
-  - [ ] 检测客户端能力（通过initialize请求）
+**阶段2: MCP集成 (Day 1 Afternoon, 4小时)**
+- [ ] 在 `mcp_server.py` 中添加新工具
+  - [ ] `start_vertical_search` 工具（主要工具）
+    - [ ] 参数：query, platform, max_results, time_filter, include_content
+    - [ ] 创建任务并启动后台执行
+    - [ ] 实现快速完成检测（等待1秒，如果完成则直接返回结果）
+    - [ ] 如果未完成，返回 task_id（< 1秒）
+    - [ ] 使用 `asyncio.create_task()` 启动后台任务
+  - [ ] `get_search_status` 工具
+    - [ ] 参数：task_id
+    - [ ] 返回任务状态、进度、结果（如果完成）
+    - [ ] 处理任务不存在的情况
+  - [ ] `cancel_search` 工具（可选）
+    - [ ] 参数：task_id
+    - [ ] 取消运行中的任务
+- [ ] 实现后台任务执行函数
+  - [ ] `_execute_search_task(task_id, params)` 函数
+    - [ ] 更新任务状态为 RUNNING
+    - [ ] 调用 `SearchManager.search()` 并传入进度回调
+    - [ ] 在进度回调中更新任务进度
+    - [ ] 完成后更新状态为 COMPLETED 并存储结果
+    - [ ] 出错时更新状态为 FAILED 并存储错误信息
+- [ ] 创建集成测试 `tests/integration/test_async_search.py`
+  - [ ] 测试完整工作流（start → poll → complete）
+  - [ ] 测试快速完成场景（任务在1秒内完成）
+  - [ ] 测试短任务（10个结果，无内容）
+  - [ ] 测试长任务（30个结果+内容）
+  - [ ] 测试并发任务（多个任务同时运行）
+  - [ ] 测试错误处理（任务失败场景）
+  - [ ] 测试任务过期清理
 
-**阶段3: 客户端超时配置文档（方案3）(1小时)**
-- [ ] 在 `README.md` 中添加长任务超时配置说明
-  - [ ] 说明MCP协议关于超时的标准做法
-  - [ ] 说明Claude Desktop的超时配置（如果支持）
-  - [ ] 说明其他MCP客户端的超时配置方式
-- [ ] 添加配置示例
-  - [ ] Claude Desktop配置示例（如果支持timeout参数）
-  - [ ] 其他客户端的配置示例
-- [ ] 添加故障排除指南
-  - [ ] 如何诊断超时问题
-  - [ ] 如何调整超时设置
-  - [ ] 如何验证进度通知是否工作
+**阶段3: 进度回调集成 (Day 2 Morning, 3小时)**
+- [ ] 在 `core/search_manager.py` 中添加进度回调支持
+  - [ ] 修改 `search()` 方法签名，添加 `progress_callback` 参数
+  - [ ] 在搜索阶段调用进度回调
+  - [ ] 在URL解析阶段调用进度回调
+  - [ ] 在内容获取阶段调用进度回调
+  - [ ] 在内容压缩阶段调用进度回调
+- [ ] 在 `core/content_processor.py` 中添加进度回调
+  - [ ] 在批量获取内容时报告进度
+  - [ ] 在批量压缩时报告进度
+- [ ] 在 `core/url_resolver.py` 中添加进度回调（如果适用）
+  - [ ] 在批量解析URL时报告进度
+- [ ] 测试各阶段的进度更新准确性
 
-**阶段4: 测试验证 (2小时)**
-- [ ] 创建 `tests/integration/test_mcp_progress.py`
-  - [ ] 测试进度通知发送
-  - [ ] 测试中间响应机制
-  - [ ] 测试长时间任务（模拟30个结果的搜索）
-  - [ ] 测试进度通知格式正确性
-- [ ] 创建 `tests/integration/test_mcp_timeout.py`
-  - [ ] 测试超时场景处理
-  - [ ] 测试进度通知对超时的影响
-  - [ ] 测试降级策略
+**阶段4: 测试与文档 (Day 2 Afternoon, 3小时)**
 - [ ] 端到端测试
-  - [ ] 测试完整的长任务流程（30个结果+内容获取）
-  - [ ] 验证AI客户端能够接收进度通知
-  - [ ] 验证任务能够完成而不超时
-
-**阶段5: 文档更新 (1小时)**
+  - [ ] 测试短任务（10个结果，无内容）- 验证快速完成检测
+  - [ ] 测试长任务（30个结果+内容）- 验证轮询机制
+  - [ ] 验证所有工具调用 < 5秒（90th percentile）
+  - [ ] 验证任务能够成功完成
+- [ ] 负载测试
+  - [ ] 测试10个并发任务（混合短任务和长任务）
+  - [ ] 验证内存使用稳定（无泄漏）
+  - [ ] 验证任务互不干扰
+  - [ ] 验证快速完成检测不影响性能
 - [ ] 更新 `README.md`
-  - [ ] 添加长任务处理说明
-  - [ ] 添加进度报告功能说明
-  - [ ] 添加超时配置说明
-- [ ] 更新 `docs/vertical-search-mcp-design.md`
-  - [ ] 添加进度通知机制设计说明
-  - [ ] 添加超时处理策略说明
-- [ ] 添加使用示例
-  - [ ] 展示如何接收进度通知
-  - [ ] 展示如何配置超时设置
+  - [ ] 添加统一异步模式说明（所有任务都使用异步）
+  - [ ] 添加 `start_vertical_search` 和 `get_search_status` 工具说明
+  - [ ] 添加使用示例（AI调用流程）
+  - [ ] 说明快速完成检测机制
+  - [ ] 说明这是全新的工具集，替代旧的同步工具
+- [ ] 更新设计文档
+  - [ ] 记录统一异步模式设计决策
+  - [ ] 说明为什么选择统一异步而非混合模式
+  - [ ] 说明快速完成检测优化
+  - [ ] 说明为什么选择异步任务而非进度通知
 
 #### ⚠️ 风险预警
 
-**风险1: 客户端不支持进度通知**
-- **触发条件**: MCP客户端不支持`notifications/progress`方法
-- **影响**: 进度通知无法发送，AI无法了解任务进度
+**风险1: 任务存储内存泄漏**
+- **触发条件**: 任务未正确清理，内存持续增长
+- **影响**: 服务器内存耗尽
 - **应对策略**: 
-  - 实现方案2（中间响应）作为降级方案
-  - 检测客户端能力，自动选择合适方案
-  - 在文档中说明客户端要求
+  - 实现自动清理机制（每5分钟清理30分钟前的任务）
+  - 监控内存使用情况
+  - 设置任务数量上限
 
-**风险2: 进度通知频率过高**
-- **触发条件**: 频繁发送进度通知
-- **影响**: 增加网络开销，可能影响性能
+**风险2: 进度回调性能影响**
+- **触发条件**: 频繁更新进度导致锁竞争
+- **影响**: 搜索性能下降
 - **应对策略**: 
-  - 设置合理的进度通知间隔（如每5个结果或每10秒）
-  - 只在关键步骤发送通知
-  - 允许配置通知频率
+  - 使用异步锁（asyncio.Lock）
+  - 限制进度更新频率（如每5个结果更新一次）
+  - 批量更新而非单个更新
 
-**风险3: 超时配置不生效**
-- **触发条件**: Claude Desktop或其他客户端不支持timeout配置
-- **影响**: 无法通过配置解决超时问题
+**风险3: 后台任务异常未捕获**
+- **触发条件**: 后台任务抛出异常但未正确处理
+- **影响**: 任务状态卡在 RUNNING，无法完成
 - **应对策略**: 
-  - 优先使用方案1（进度通知），让客户端重置超时计时器
-  - 在文档中说明客户端限制
-  - 提供替代方案（如分批处理）
+  - 在 `_execute_search_task` 中使用 try-except 捕获所有异常
+  - 确保异常时更新任务状态为 FAILED
+  - 记录详细错误日志
 
-**风险4: 进度通知格式不兼容**
-- **触发条件**: 进度通知格式不符合客户端期望
-- **影响**: 客户端无法解析进度信息
+**风险4: 并发任务过多导致资源耗尽**
+- **触发条件**: 同时启动大量任务
+- **影响**: 浏览器池、内存等资源耗尽
 - **应对策略**: 
-  - 参考MCP协议规范实现
-  - 测试多种客户端兼容性
-  - 提供格式验证
+  - 实现任务队列（可选，未来增强）
+  - 设置并发任务上限
+  - 监控资源使用情况
 
 **验收标准**:
 
-- ✅ **进度通知功能正常工作**
-  - 测量命令: `pytest tests/integration/test_mcp_progress.py::test_progress_notification -v`
-  - 预期结果: 进度通知能够正确发送，格式符合MCP协议
-  - 验证方法: 检查发送的JSON-RPC通知消息格式
+- ✅ **所有工具调用返回时间 < 5秒（90th percentile）** ✅ 待验证
+  - 测量命令: 执行多次工具调用（包括短任务和长任务），记录响应时间
+  - 预期结果: 90%的调用 < 5秒
+  - 验证方法: 检查日志中的响应时间
 
-- ✅ **长时间任务（30个结果）能够完成**
-  - 测量命令: `pytest tests/integration/test_mcp_progress.py::test_long_task_completion -v`
-  - 预期结果: 30个结果的搜索能够完成，不因超时中断
-  - 验证方法: 执行完整搜索流程，验证结果返回
+- ✅ **短任务快速完成检测正常工作** ✅ 待验证
+  - 测量命令: `pytest tests/integration/test_async_search.py::test_fast_completion -v`
+  - 预期结果: 1秒内完成的任务直接返回结果，无需轮询
+  - 验证方法: 测试10个结果无内容的搜索，验证直接返回结果
 
-- ✅ **进度通知能够重置客户端超时**
-  - 测量方法: 在长时间任务中发送进度通知，验证客户端不超时
-  - 预期结果: 客户端在收到进度通知后重置超时计时器
-  - 验证方法: 检查任务完成时间，确认超过默认超时时间仍能完成
+- ✅ **长时间搜索（30个结果+内容）成功完成率 > 95%** ✅ 待验证
+  - 测量命令: `pytest tests/integration/test_async_search.py::test_long_search_completion -v`
+  - 预期结果: 成功率 >= 95%
+  - 验证方法: 执行30个结果+内容的搜索，验证完成率
 
-- ✅ **中间响应机制正常工作（降级方案）**
-  - 测量命令: `pytest tests/integration/test_mcp_progress.py::test_intermediate_response -v`
-  - 预期结果: 中间响应能够正确发送，客户端能够处理
-  - 验证方法: 检查响应格式和`isIncomplete`字段
+- ✅ **短任务（10个结果，无内容）成功完成率 > 95%** ✅ 待验证
+  - 测量命令: `pytest tests/integration/test_async_search.py::test_short_search_completion -v`
+  - 预期结果: 成功率 >= 95%，且大部分通过快速完成检测直接返回
+  - 验证方法: 执行10个结果无内容的搜索，验证完成率和快速完成检测
 
-- ✅ **文档完整且准确**
-  - 测量方法: 检查README和设计文档
-  - 预期结果: 包含完整的配置说明、使用示例和故障排除指南
-  - 验证方法: 检查文档内容完整性
+- ✅ **进度更新准确（±5%误差）** ✅ 待验证
+  - 测量方法: 检查进度百分比与实际完成度
+  - 预期结果: 进度误差 < 5%
+  - 验证方法: 对比进度报告和实际完成情况
 
-- ✅ **所有测试通过**
-  - 测量命令: `pytest tests/integration/test_mcp_progress.py tests/integration/test_mcp_timeout.py -v`
+- ✅ **无内存泄漏（100个并发任务后内存稳定）** ✅ 待验证
+  - 测量命令: 运行100个并发任务（混合短任务和长任务），监控内存使用
+  - 预期结果: 内存使用稳定，无持续增长
+  - 验证方法: 使用内存分析工具（如 memory_profiler）
+
+- ✅ **并发任务互不干扰（10个并发任务全部完成）** ✅ 待验证
+  - 测量命令: `pytest tests/integration/test_async_search.py::test_concurrent_tasks -v`
+  - 预期结果: 10个并发任务（混合短任务和长任务）全部成功完成
+  - 验证方法: 检查所有任务的状态和结果
+
+- ✅ **任务清理机制正常工作** ✅ 待验证
+  - 测量命令: `pytest tests/unit/test_task_manager.py::test_cleanup_old_tasks -v`
+  - 预期结果: 过期任务被正确清理
+  - 验证方法: 创建过期任务，等待清理循环运行，验证任务被删除
+
+- ✅ **所有测试通过** ✅ 待验证
+  - 测量命令: `pytest tests/unit/test_task_manager.py tests/integration/test_async_search.py -v`
   - 预期结果: 无失败、无跳过
   - 验证方法: 运行所有相关测试
 
@@ -1863,14 +1915,16 @@ class WeixinSearcher(BasePlatformSearcher):
 **额外完成**:
 - [ ] 所有代码包含完整的类型注解和文档字符串
 - [ ] 代码质量符合项目规范（无lint错误，类型检查通过）
-- [ ] 实现了三种方案的完整支持
-- [ ] 提供了详细的配置文档和使用示例
-- [ ] 所有测试通过
+- [ ] 实现了统一异步任务模式（所有任务都使用异步）
+- [ ] 实现了快速完成检测优化（1秒内完成的任务直接返回）
+- [ ] 提供了详细的使用文档和工具说明
+- [ ] 所有测试通过（包括短任务和长任务测试）
 
 **技术参考**:
+- 设计文档: `docs/ITERATION_10_ASYNC_TASK_DESIGN.md`
 - MCP协议规范: https://modelcontextprotocol.io/
 - JSON-RPC 2.0规范: https://www.jsonrpc.org/specification
-- MCP进度通知: 参考MCP协议规范中的通知机制
+- Python asyncio: https://docs.python.org/3/library/asyncio.html
 
 ---
 
@@ -2050,7 +2104,7 @@ class WeixinSearcher(BasePlatformSearcher):
 | Iteration 7 | 日志系统 | 0.5 天 | P1 | ✅ 已完成 (2026-01-06) |
 | Iteration 8 | 反爬虫应对策略 | 0.5 天 | P1 | ✅ 已完成 (2026-01-06) |
 | Iteration 9 | 文章内容获取与智能压缩 | 1.5 天 | P1 | ✅ 已完成 (2026-01-06) |
-| Iteration 10 | MCP 长任务超时与进度报告 | 1 天 | P1 | ⬜ 未开始 |
+| Iteration 10 | 异步任务设计 - 统一异步模式 | 1 天 | P1 | ⬜ 未开始 |
 | Iteration 11 | 错误处理、性能监控与代码质量 | 1.5 天 | P1 | ⬜ 未开始 |
 
 **总计**: 10.5-13 天
@@ -2080,9 +2134,9 @@ class WeixinSearcher(BasePlatformSearcher):
 - ✅ 文章内容获取与智能压缩功能（Iteration 9）
 
 ### Milestone 5: 长任务支持 (Iteration 10)
-- ⬜ MCP进度通知机制实现（Iteration 10）
-- ⬜ 长任务超时处理（Iteration 10）
-- ⬜ 进度报告功能完善（Iteration 10）
+- ⬜ 异步任务模式实现（TaskManager + 后台执行）（Iteration 10）
+- ⬜ MCP工具集成（start_vertical_search + get_search_status）（Iteration 10）
+- ⬜ 进度回调机制完善（SearchManager + ContentProcessor）（Iteration 10）
 
 ### Milestone 6: 生产就绪 (Iteration 11)
 - ⬜ 错误处理和重试机制完善（Iteration 11）
