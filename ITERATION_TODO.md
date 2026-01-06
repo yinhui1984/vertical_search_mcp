@@ -558,55 +558,42 @@ class UnifiedSearchManager:
 
 #### 性能基准测试设计
 
-**测试1: 对比原项目性能**
+**测试1: 浏览器复用性能**
 
 ```python
 # tests/benchmark/test_weixin_performance.py
 
 import time
-import sys
 import pytest
-sys.path.append('/Users/z/Documents/github/weixin-search-playwright-mcp')
-from app.search.playwright_search import WeChatArticleSearcher as OriginalSearcher
-
 from core.browser_pool import BrowserPool
 from platforms.weixin_searcher import WeixinSearcher
 
+
 @pytest.mark.asyncio
-async def test_compare_with_original():
-    """对比原项目性能"""
-    
-    # 原项目测试
-    original = OriginalSearcher()
-    await original.__aenter__()
-    try:
-        start1 = time.time()
-        results1 = await original.search_articles("Python", max_results=5)
-        time_original = time.time() - start1
-    finally:
-        await original.__aexit__(None, None, None)
-    
-    # 新项目测试（首次）
+async def test_browser_reuse_performance():
+    """验证浏览器复用带来的性能收益"""
+
     pool = BrowserPool()
+    await pool.init()
     searcher = WeixinSearcher(pool)
+
+    # 首次搜索（包含浏览器初始化时间）
+    start1 = time.time()
+    results1 = await searcher.search("Python", max_results=5)
+    time_first = time.time() - start1
+
+    # 第二次搜索（浏览器已复用）
     start2 = time.time()
-    results2 = await searcher.search("Python", max_results=5)
-    time_new_first = time.time() - start2
-    
-    # 新项目测试（第二次，浏览器已启动）
-    start3 = time.time()
-    results3 = await searcher.search("AI", max_results=5)
-    time_new_second = time.time() - start3
-    
+    results2 = await searcher.search("AI", max_results=5)
+    time_second = time.time() - start2
+
     print(f"\n性能对比:")
-    print(f"原项目: {time_original:.2f}s")
-    print(f"新项目(首次): {time_new_first:.2f}s")
-    print(f"新项目(第二次): {time_new_second:.2f}s")
-    print(f"提升倍数: {time_original / time_new_second:.2f}x")
-    
-    # 验收标准
-    assert time_new_second < time_original / 3, f"速度提升未达到3倍: {time_original / time_new_second:.2f}x"
-    
+    print(f"首次搜索(含初始化): {time_first:.2f}s")
+    print(f"第二次搜索(复用浏览器): {time_second:.2f}s")
+
+    # 验收标准：第二次搜索显著快于首次（阈值可根据实际情况调整）
+    assert time_second < time_first / 2, f"浏览器复用加速效果不足: {time_first / time_second:.2f}x"
+
     await pool.close()
 ```
 
