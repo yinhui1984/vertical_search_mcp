@@ -9,9 +9,12 @@ that provides vertical search capabilities for multiple platforms.
 
 import asyncio
 import json
+import logging
 import sys
+import time
 from typing import Any, Dict, List, Optional
 
+from core.logger import setup_logger, get_logger
 from core.search_manager import UnifiedSearchManager
 from platforms.weixin_searcher import WeixinSearcher
 from platforms.zhihu_searcher import ZhihuSearcher
@@ -29,6 +32,15 @@ class MCPServer:
         """Initialize MCP server."""
         self.manager: Optional[UnifiedSearchManager] = None
         self.request_id = 0
+        self.logger = get_logger("vertical_search.mcp_server")
+        
+        # Tool name aliases mapping
+        # Maps alternative names to the canonical tool name
+        self.tool_aliases: Dict[str, str] = {
+            "垂直搜索": "search_vertical",
+            "vertical_search": "search_vertical",
+            "search_vertical": "search_vertical",
+        }
 
     async def start(self) -> None:
         """
@@ -45,14 +57,14 @@ class MCPServer:
         self.manager.register_platform("weixin", WeixinSearcher(self.manager.browser_pool))
         self.manager.register_platform("zhihu", ZhihuSearcher(self.manager.browser_pool))
 
-        print("Vertical Search MCP Server started", file=sys.stderr)
-        print(f"Registered platforms: {self.manager.get_registered_platforms()}", file=sys.stderr)
+        self.logger.info("Vertical Search MCP Server started")
+        self.logger.info(f"Registered platforms: {self.manager.get_registered_platforms()}")
 
     async def stop(self) -> None:
         """Stop the server and clean up resources."""
         if self.manager:
             await self.manager.close()
-        print("MCP Server stopped", file=sys.stderr)
+        self.logger.info("MCP Server stopped")
 
     def send_response(self, request_id: int, result: Any = None, error: Any = None) -> None:
         """
@@ -108,7 +120,7 @@ class MCPServer:
         tools = [
             {
                 "name": "search_vertical",
-                "description": "Search vertical platforms (WeChat, Zhihu, etc.) for articles and content",
+                "description": "垂直搜索 (Vertical Search): Search vertical platforms (WeChat, Zhihu, etc.) for articles and content. Also known as: 垂直搜索, vertical_search",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -153,10 +165,10 @@ class MCPServer:
             request_id: Request ID
             params: Tool call parameters containing 'name' and 'arguments'
         """
-        print(f"handle_call_tool called: request_id={request_id}, params={json.dumps(params, ensure_ascii=False)}", file=sys.stderr)
+        self.logger.debug(f"handle_call_tool called: request_id={request_id}, params={json.dumps(params, ensure_ascii=False)}")
         
         if not self.manager:
-            print("ERROR: Manager not initialized", file=sys.stderr)
+            self.logger.error("Manager not initialized")
             self.send_response(
                 request_id,
                 None,
@@ -166,9 +178,16 @@ class MCPServer:
 
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
-        print(f"Tool name: {tool_name}, arguments: {json.dumps(arguments, ensure_ascii=False)}", file=sys.stderr)
+        
+        # Resolve tool name alias to canonical name
+        canonical_name = self.tool_aliases.get(tool_name, tool_name)
+        
+        if canonical_name != tool_name:
+            self.logger.debug(f"Tool name alias resolved: '{tool_name}' -> '{canonical_name}'")
+        
+        self.logger.info(f"Tool call: {canonical_name} (requested as: {tool_name}), arguments: {json.dumps(arguments, ensure_ascii=False)}")
 
-        if tool_name == "search_vertical":
+        if canonical_name == "search_vertical":
             await self._handle_search_vertical(request_id, arguments)
         else:
             self.send_response(
@@ -251,7 +270,9 @@ class MCPServer:
 
         # Execute search
         try:
-            print(f"Executing search: platform={platform}, query={query}, max_results={max_results}", file=sys.stderr)
+            start_time = time.time()
+            self.logger.info(f"Executing search: platform={platform}, query={query}, max_results={max_results}, time_filter={time_filter}")
+            
             results = await self.manager.search(
                 platform=platform,
                 query=query,
@@ -260,7 +281,8 @@ class MCPServer:
                 use_cache=True,
             )
 
-            print(f"Search completed: {len(results)} results found", file=sys.stderr)
+            elapsed_time = time.time() - start_time
+            self.logger.info(f"Search completed: {len(results)} results found in {elapsed_time:.2f}s (platform={platform}, query={query})")
 
             # Format results
             result_text = self._format_search_results(platform, query, results)
@@ -279,7 +301,7 @@ class MCPServer:
 
         except ValueError as e:
             # Parameter validation errors
-            print(f"Parameter validation error: {str(e)}", file=sys.stderr)
+            self.logger.warning(f"Parameter validation error: {str(e)} (platform={platform}, query={query})")
             self.send_response(
                 request_id,
                 None,
@@ -287,10 +309,7 @@ class MCPServer:
             )
         except RuntimeError as e:
             # Search execution errors
-            print(f"Search error: {str(e)}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            sys.stderr.flush()
+            self.logger.error(f"Search error: {str(e)} (platform={platform}, query={query})", exc_info=True)
             self.send_response(
                 request_id,
                 None,
@@ -298,10 +317,7 @@ class MCPServer:
             )
         except Exception as e:
             # Unexpected errors
-            print(f"Unexpected error: {str(e)}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            sys.stderr.flush()
+            self.logger.error(f"Unexpected error: {str(e)} (platform={platform}, query={query})", exc_info=True)
             self.send_response(
                 request_id,
                 None,
@@ -423,6 +439,10 @@ class MCPServer:
 
 async def main() -> None:
     """Main entry point for MCP server."""
+    # Initialize logger before creating server
+    setup_logger(name="vertical_search", log_level=logging.INFO)
+    logger = get_logger("vertical_search.mcp_server")
+    
     server = MCPServer()
 
     try:
@@ -446,20 +466,20 @@ async def main() -> None:
                     message = json.loads(line)
                     # Log incoming requests for debugging
                     if message.get("method") == "tools/call":
-                        print(f"Received tool call: {json.dumps(message, ensure_ascii=False)}", file=sys.stderr)
+                        logger.debug(f"Received tool call: {json.dumps(message, ensure_ascii=False)}")
                     await server.handle_request(message)
                 except json.JSONDecodeError as e:
-                    print(f"JSON parse error: {e}", file=sys.stderr)
+                    logger.error(f"JSON parse error: {e}")
 
             except EOFError:
                 break
             except Exception as e:
-                print(f"Request handling error: {e}", file=sys.stderr)
+                logger.error(f"Request handling error: {e}", exc_info=True)
 
     except KeyboardInterrupt:
-        pass
+        logger.info("Server interrupted by user")
     except Exception as e:
-        print(f"Server error: {e}", file=sys.stderr)
+        logger.error(f"Server error: {e}", exc_info=True)
     finally:
         await server.stop()
 

@@ -366,6 +366,101 @@ class TestMCPServerIntegration:
         assert "unknown" in response_captured["error"]["message"].lower()
 
     @pytest.mark.asyncio
+    async def test_tool_call_with_alias_chinese(self, server: MCPServer) -> None:
+        """Test tool call using Chinese alias '垂直搜索'."""
+        request = self._create_request(
+            "tools/call",
+            {
+                "name": "垂直搜索",
+                "arguments": {
+                    "platform": "weixin",
+                    "query": "Python",
+                    "max_results": 3,
+                },
+            },
+        )
+
+        response_captured = None
+
+        def capture_response(request_id: int, result: Any = None, error: Any = None) -> None:
+            nonlocal response_captured
+            response_captured = {"id": request_id, "result": result, "error": error}
+
+        original_send = server.send_response
+        server.send_response = capture_response  # type: ignore
+
+        await server.handle_request(request)
+
+        server.send_response = original_send
+
+        # Verify response (should work same as search_vertical)
+        assert response_captured is not None
+        assert response_captured["id"] == 1
+        assert response_captured["error"] is None
+        assert response_captured["result"] is not None
+
+    @pytest.mark.asyncio
+    async def test_tool_call_with_alias_vertical_search(self, server: MCPServer) -> None:
+        """Test tool call using alias 'vertical_search'."""
+        request = self._create_request(
+            "tools/call",
+            {
+                "name": "vertical_search",
+                "arguments": {
+                    "platform": "weixin",
+                    "query": "Python",
+                    "max_results": 3,
+                },
+            },
+        )
+
+        response_captured = None
+
+        def capture_response(request_id: int, result: Any = None, error: Any = None) -> None:
+            nonlocal response_captured
+            response_captured = {"id": request_id, "result": result, "error": error}
+
+        original_send = server.send_response
+        server.send_response = capture_response  # type: ignore
+
+        await server.handle_request(request)
+
+        server.send_response = original_send
+
+        # Verify response (should work same as search_vertical)
+        assert response_captured is not None
+        assert response_captured["id"] == 1
+        assert response_captured["error"] is None
+        assert response_captured["result"] is not None
+
+    @pytest.mark.asyncio
+    async def test_tool_description_includes_aliases(self, server: MCPServer) -> None:
+        """Test that tool description includes alias information."""
+        request = self._create_request("tools/list")
+
+        response_captured = None
+
+        def capture_response(request_id: int, result: Any = None, error: Any = None) -> None:
+            nonlocal response_captured
+            response_captured = {"id": request_id, "result": result, "error": error}
+
+        original_send = server.send_response
+        server.send_response = capture_response  # type: ignore
+
+        await server.handle_request(request)
+
+        server.send_response = original_send
+
+        # Verify description includes alias information
+        assert response_captured is not None
+        tools = response_captured["result"]["tools"]
+        tool = tools[0]
+        description = tool["description"]
+        
+        # Check that description mentions aliases
+        assert "垂直搜索" in description or "vertical_search" in description
+
+    @pytest.mark.asyncio
     async def test_notification_initialized(self, server: MCPServer) -> None:
         """Test notifications/initialized notification handling."""
         request = {

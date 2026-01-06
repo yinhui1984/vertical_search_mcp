@@ -5,11 +5,11 @@ This module defines the abstract base class that all platform searchers must inh
 It provides a standard interface and common utility methods for platform-specific implementations.
 """
 
-import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Any
 from core.browser_pool import BrowserPool
 from core.url_resolver import URLResolver
+from core.logger import get_logger
 from playwright.async_api import Page, ElementHandle
 import re
 import urllib.request
@@ -37,7 +37,7 @@ class BasePlatformSearcher(ABC):
         """
         self.browser_pool = browser_pool
         self.config: Dict[str, Any] = {}
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(f"vertical_search.{self.__class__.__name__.lower()}")
 
     @abstractmethod
     def _load_config(self) -> Dict[str, Any]:

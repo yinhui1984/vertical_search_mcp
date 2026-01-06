@@ -7,11 +7,11 @@ This module implements the unified search manager that handles:
 - Error handling and logging
 """
 
-import logging
 from typing import Dict, List, Optional
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
 from core.base_searcher import BasePlatformSearcher
+from core.logger import get_logger
 
 
 class UnifiedSearchManager:
@@ -32,7 +32,7 @@ class UnifiedSearchManager:
         self.browser_pool = BrowserPool()
         self.cache = SearchCache(ttl=300)
         self.searchers: Dict[str, BasePlatformSearcher] = {}
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger("vertical_search.search_manager")
 
     def register_platform(self, platform: str, searcher: BasePlatformSearcher) -> None:
         """

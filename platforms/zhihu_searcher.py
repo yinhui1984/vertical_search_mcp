@@ -7,7 +7,7 @@ It inherits from BasePlatformSearcher and implements platform-specific search lo
 
 import os
 import asyncio
-import logging
+from core.logger import get_logger
 import yaml
 from typing import List, Dict, Optional, Any
 from urllib.parse import urlencode
@@ -34,7 +34,6 @@ class ZhihuSearcher(BasePlatformSearcher):
         super().__init__(browser_pool)
         self.config = self._load_config()
         self.base_url = self.config.get("base_url", "https://zhihu.sogou.com/zhihu")
-        self.logger = logging.getLogger(__name__)
 
     def _load_config(self) -> Dict[str, Any]:
         """
