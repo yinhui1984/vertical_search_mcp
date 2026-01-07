@@ -6,6 +6,7 @@ to process search results with full article content.
 """
 
 import asyncio
+import time
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
@@ -141,6 +142,7 @@ class ContentProcessor:
                 f"(exceeding {self.single_article_threshold} tokens threshold)"
             )
             compress_total = len(articles_to_compress)
+            total_results = len(results)  # Total results count for context
             for i, article in enumerate(articles_to_compress, 1):
                 try:
                     title = article.get("title", f"Article {i}")
@@ -149,7 +151,7 @@ class ContentProcessor:
                     if progress_callback:
                         await progress_callback(
                             "compressing",
-                            f"Compressing article {i}/{compress_total}: '{title}'",
+                            f"Compressing article {i}/{compress_total} (of {total_results} total results): '{title}'",
                             i,
                             compress_total,
                         )
@@ -159,9 +161,24 @@ class ContentProcessor:
                         f"'{title}' ({original_tokens} tokens)"
                     )
 
+                    # Track compression time for long operations
+                    compression_start = time.time()
+                    
                     compressed_article = await self.content_compressor.compress_article(
                         article, max_tokens=2000  # Target 2000 tokens per article
                     )
+                    
+                    compression_time = time.time() - compression_start
+                    
+                    # If compression takes longer than 10 seconds, send intermediate progress update
+                    if compression_time > 10 and progress_callback:
+                        await progress_callback(
+                            "compressing",
+                            f"Compressed article {i}/{compress_total} (of {total_results} total results): '{title}' "
+                            f"({compression_time:.1f}s)",
+                            i,
+                            compress_total,
+                        )
                     # Update tokens after compression
                     if compressed_content := compressed_article.get("content"):
                         new_tokens = self.token_estimator.estimate_tokens(compressed_content)

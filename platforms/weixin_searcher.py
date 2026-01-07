@@ -8,7 +8,7 @@ It inherits from BasePlatformSearcher and implements platform-specific search lo
 import os
 import asyncio
 import yaml
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable, Awaitable
 from urllib.parse import urlencode
 from core.base_searcher import BasePlatformSearcher
 from core.browser_pool import BrowserPool
@@ -75,7 +75,7 @@ class WeixinSearcher(BasePlatformSearcher):
         return configs["weixin"]  # type: ignore[no-any-return]
 
     async def search(
-        self, query: str, max_results: int = 10, **kwargs: Any
+        self, query: str, max_results: int = 10, progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         """
         Execute WeChat article search.
@@ -516,11 +516,23 @@ class WeixinSearcher(BasePlatformSearcher):
                 # Resolve URLs by clicking links on the search results page
                 # We navigate to the correct page for each link to avoid stale element references
                 resolved_urls: List[Optional[str]] = []
+                total_urls = len(redirect_indices)
+                success_count = 0
+                failed_count = 0
                 for idx, result_idx in enumerate(redirect_indices):
                     try:
                         self.logger.info(
                             f"Resolving URL {idx + 1}/{len(redirect_indices)} (result index {result_idx}): {redirect_urls[idx][:80]}..."
                         )
+                        
+                        # Report progress
+                        if progress_callback:
+                            await progress_callback(
+                                "resolving",
+                                f"Resolving URLs: {success_count}/{idx} successful ({failed_count} failed)",
+                                idx,
+                                total_urls,
+                            )
 
                         # Get link element by navigating to the correct page
                         link_element = await get_link_element_by_index(result_idx)
@@ -530,6 +542,7 @@ class WeixinSearcher(BasePlatformSearcher):
                                 f"Could not find link element for result index {result_idx}"
                             )
                             resolved_urls.append(None)
+                            failed_count += 1
                             continue
 
                         # Click the link and wait for new page/tab to open
@@ -575,6 +588,7 @@ class WeixinSearcher(BasePlatformSearcher):
                                 and "sogou.com" not in new_page_url
                             ):
                                 resolved_urls.append(new_page_url)
+                                success_count += 1
                                 self.logger.info(
                                     f"Successfully resolved URL {idx + 1}: {new_page_url}"
                                 )
@@ -584,10 +598,12 @@ class WeixinSearcher(BasePlatformSearcher):
                                     f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
                                 )
                                 resolved_urls.append(None)
+                                failed_count += 1
                                 await new_page.close()
                         except Exception as e:
                             self.logger.error(f"Error clicking link {idx + 1}: {e}", exc_info=True)
                             resolved_urls.append(None)
+                            failed_count += 1
 
                         # Small delay between clicks
                         if idx < len(redirect_urls) - 1:
@@ -596,17 +612,27 @@ class WeixinSearcher(BasePlatformSearcher):
                     except Exception as e:
                         self.logger.error(f"Error resolving URL {idx + 1}: {e}", exc_info=True)
                         resolved_urls.append(None)
+                        failed_count += 1
+
+                # Report final progress
+                if progress_callback:
+                    await progress_callback(
+                        "resolving",
+                        f"URL resolution completed: {success_count}/{total_urls} successful ({failed_count} failed)",
+                        total_urls,
+                        total_urls,
+                    )
 
                 # Update results with resolved URLs
-                success_count = 0
+                final_success_count = 0
                 for i, resolved_url in zip(redirect_indices, resolved_urls):
                     if resolved_url:
                         results[i]["url"] = resolved_url
-                        success_count += 1
+                        final_success_count += 1
                         self.logger.info(f"Updated result {i} with resolved URL: {resolved_url}")
 
                 self.logger.info(
-                    f"URL resolution completed: {success_count}/{len(redirect_indices)} URLs resolved successfully"
+                    f"URL resolution completed: {final_success_count}/{len(redirect_indices)} URLs resolved successfully"
                 )
 
             # Close the search page

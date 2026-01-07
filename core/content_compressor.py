@@ -197,41 +197,17 @@ Output format:
             )
             return self._truncate(content, max_tokens), "truncated"
 
+        # Calculate dynamic timeout based on content size
+        # Formula: min(120, max(60, len(content) / 100))
+        # This gives 60-120 seconds based on content size
+        dynamic_timeout = min(120, max(60, len(content) / 100))
         self.logger.info(
-            f"Attempting to compress content: {len(content)} chars -> target {max_tokens} tokens"
+            f"Attempting to compress content: {len(content)} chars -> target {max_tokens} tokens "
+            f"(timeout: {dynamic_timeout:.1f}s)"
         )
 
-        try:
-            response = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": self.SINGLE_ARTICLE_COMPRESS_PROMPT,
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Please compress the following content to approximately {max_tokens} tokens:\n\n{content}",
-                        },
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    stream=False,
-                ),
-                timeout=self.timeout,
-            )
-
-            compressed = response.choices[0].message.content or ""
-            self.logger.info(
-                f"Successfully compressed content: {len(content)} chars -> {len(compressed)} chars "
-                f"({len(compressed)/len(content)*100:.1f}% of original)"
-            )
-            return compressed, "compressed"
-
-        except RateLimitError:
-            self.logger.warning("Rate limit error, waiting and retrying...")
-            await asyncio.sleep(5)
+        async def _compress_with_timeout(timeout_seconds: float, attempt_num: int = 1) -> Tuple[str, str]:
+            """Helper function to compress with specified timeout."""
             try:
                 response = await asyncio.wait_for(
                     self.client.chat.completions.create(
@@ -250,19 +226,55 @@ Output format:
                         temperature=temperature,
                         stream=False,
                     ),
-                    timeout=self.timeout,
+                    timeout=timeout_seconds,
                 )
                 compressed = response.choices[0].message.content or ""
+                self.logger.info(
+                    f"Successfully compressed content (attempt {attempt_num}): "
+                    f"{len(content)} chars -> {len(compressed)} chars "
+                    f"({len(compressed)/len(content)*100:.1f}% of original)"
+                )
                 return compressed, "compressed"
+            except asyncio.TimeoutError:
+                self.logger.warning(
+                    f"Compression timeout after {timeout_seconds:.1f}s (attempt {attempt_num})"
+                )
+                raise
             except Exception as e:
-                self.logger.error(f"Retry failed: {e}")
+                self.logger.error(f"Compression error (attempt {attempt_num}): {e}")
+                raise
+
+        try:
+            compressed, status = await _compress_with_timeout(dynamic_timeout, attempt_num=1)
+            return compressed, status
+
+        except RateLimitError:
+            self.logger.warning("Rate limit error, waiting and retrying...")
+            await asyncio.sleep(5)
+            try:
+                compressed, status = await _compress_with_timeout(dynamic_timeout, attempt_num=2)
+                return compressed, status
+            except Exception as e:
+                self.logger.error(f"Retry after rate limit failed: {e}")
                 return self._truncate(content, max_tokens), "truncated"
 
         except asyncio.TimeoutError:
-            self.logger.warning(
-                f"Compression timeout after {self.timeout}s, using truncation fallback"
+            # Retry with exponential backoff (double the timeout)
+            retry_timeout = min(180, dynamic_timeout * 2)
+            self.logger.info(
+                f"Compression timeout after {dynamic_timeout:.1f}s, retrying with {retry_timeout:.1f}s timeout"
             )
-            return self._truncate(content, max_tokens), "truncated"
+            try:
+                # Exponential backoff: wait before retry
+                await asyncio.sleep(2)
+                compressed, status = await _compress_with_timeout(retry_timeout, attempt_num=2)
+                return compressed, status
+            except (asyncio.TimeoutError, Exception) as e:
+                self.logger.warning(
+                    f"Compression retry failed after {retry_timeout:.1f}s: {e}, "
+                    f"using truncation fallback"
+                )
+                return self._truncate(content, max_tokens), "truncated"
 
         except Exception as e:
             self.logger.error(f"Compression failed: {e}, using truncation fallback", exc_info=True)
@@ -327,6 +339,14 @@ Output format:
             self.logger.error("DeepSeek API client not initialized. Cannot compress batch.")
             return articles
 
+        # Calculate dynamic timeout for batch compression
+        # Use content size to determine timeout, with minimum of 120s and maximum of 300s
+        batch_timeout = min(300, max(120, len(combined_content) / 50))
+        self.logger.info(
+            f"Batch compression: {len(combined_content)} chars, "
+            f"target {max_total_tokens} tokens, timeout: {batch_timeout:.1f}s"
+        )
+
         try:
             response = await asyncio.wait_for(
                 self.client.chat.completions.create(
@@ -345,7 +365,7 @@ Output format:
                     temperature=0.3,
                     stream=False,
                 ),
-                timeout=self.timeout * 2,  # Batch compression may take longer
+                timeout=batch_timeout,
             )
 
             compressed_batch = response.choices[0].message.content or ""

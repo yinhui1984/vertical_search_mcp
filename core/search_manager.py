@@ -180,7 +180,9 @@ class UnifiedSearchManager:
         # Execute search
         try:
             self.logger.info(f"Executing search on {platform} for query: {query}")
-            results = await searcher.search(query=query, max_results=max_results)
+            results = await searcher.search(
+                query=query, max_results=max_results, progress_callback=progress_callback
+            )
 
             # Report progress: searching completed
             if progress_callback:
@@ -197,6 +199,29 @@ class UnifiedSearchManager:
                 self.logger.debug(f"Cached results for {platform}:{query}")
 
             self.logger.info(f"Search completed: {len(results)} results for {platform}:{query}")
+
+            # Validate result count
+            if len(results) < max_results:
+                missing_count = max_results - len(results)
+                warning_msg = (
+                    f"Search completed: {len(results)}/{max_results} results "
+                    f"({missing_count} URLs failed to resolve)"
+                )
+                self.logger.warning(warning_msg)
+                if progress_callback:
+                    await progress_callback(
+                        "searching",
+                        warning_msg,
+                        len(results),
+                        max_results,
+                    )
+                
+                # Warn if significant gap exists (less than 80% of requested)
+                if len(results) < max_results * 0.8:
+                    self.logger.warning(
+                        f"Warning: Only {len(results)}/{max_results} results found "
+                        f"({len(results)/max_results*100:.1f}% of requested)"
+                    )
 
             # Process content if requested
             if include_content:

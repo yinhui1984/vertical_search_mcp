@@ -9,7 +9,7 @@ import os
 import asyncio
 from core.logger import get_logger
 import yaml
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable, Awaitable
 from urllib.parse import urlencode
 from core.base_searcher import BasePlatformSearcher
 from core.browser_pool import BrowserPool
@@ -75,7 +75,7 @@ class ZhihuSearcher(BasePlatformSearcher):
         return configs["zhihu"]  # type: ignore[no-any-return]
 
     async def search(
-        self, query: str, max_results: int = 10, **kwargs: Any
+        self, query: str, max_results: int = 10, progress_callback: Optional[Callable[[str, str, int, int], Awaitable[None]]] = None, **kwargs: Any
     ) -> List[Dict[str, str]]:
         """
         Execute Zhihu search.
@@ -210,11 +210,23 @@ class ZhihuSearcher(BasePlatformSearcher):
 
                 # Resolve URLs by clicking links on the search results page
                 resolved_urls: List[Optional[str]] = []
+                total_urls = len(redirect_indices)
+                success_count = 0
+                failed_count = 0
                 for idx, result_idx in enumerate(redirect_indices):
                     try:
                         self.logger.debug(
                             f"Resolving URL {idx + 1}/{len(redirect_indices)}: {redirect_urls[idx][:80]}..."
                         )
+                        
+                        # Report progress
+                        if progress_callback:
+                            await progress_callback(
+                                "resolving",
+                                f"Resolving URLs: {success_count}/{idx} successful ({failed_count} failed)",
+                                idx,
+                                total_urls,
+                            )
 
                         # Use the link element at the same index as the result
                         if result_idx < len(all_link_elements):
@@ -271,9 +283,11 @@ class ZhihuSearcher(BasePlatformSearcher):
                                             f"{detection.detection_type.value}, URL: {new_page_url}"
                                         )
                                         resolved_urls.append(None)
+                                        failed_count += 1
                                         await new_page.close()
                                     else:
                                         resolved_urls.append(new_page_url)
+                                        success_count += 1
                                         self.logger.info(
                                             f"Successfully resolved URL {idx + 1}: {new_page_url}"
                                         )
@@ -283,15 +297,18 @@ class ZhihuSearcher(BasePlatformSearcher):
                                         f"New page URL doesn't match target domain. URL: {new_page_url}, target domains: {target_domains}"
                                     )
                                     resolved_urls.append(None)
+                                    failed_count += 1
                                     await new_page.close()
                             except Exception as e:
                                 self.logger.debug(f"Error clicking link {idx + 1}: {e}")
                                 resolved_urls.append(None)
+                                failed_count += 1
                         else:
                             self.logger.debug(
                                 f"Could not find link element for result index {result_idx}"
                             )
                             resolved_urls.append(None)
+                            failed_count += 1
 
                         # Small delay between clicks
                         if idx < len(redirect_urls) - 1:
@@ -300,6 +317,16 @@ class ZhihuSearcher(BasePlatformSearcher):
                     except Exception as e:
                         self.logger.warning(f"Error resolving URL {idx + 1}: {e}")
                         resolved_urls.append(None)
+                        failed_count += 1
+
+                # Report final progress
+                if progress_callback:
+                    await progress_callback(
+                        "resolving",
+                        f"URL resolution completed: {success_count}/{total_urls} successful ({failed_count} failed)",
+                        total_urls,
+                        total_urls,
+                    )
 
                 # Update results with resolved URLs, remove results with failed resolution
                 indices_to_remove = []
