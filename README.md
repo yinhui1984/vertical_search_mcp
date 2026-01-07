@@ -245,6 +245,14 @@ Then send JSON-RPC messages to test:
 {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
 
+#### Example Screenshots
+
+The `examples/` folder contains actual example screenshots of using the MCP server:
+- `example_claude.jpg`: Example of Claude Desktop using the MCP server for search
+- `example_roocode.jpg`: Example of RooCode using the MCP server for search
+
+These screenshots demonstrate how to use the Vertical Search MCP server in different AI clients.
+
 ### Direct Usage
 
 ```python
@@ -427,6 +435,9 @@ vertical-search-mcp/
 │   ├── platforms.yaml         # Platform configurations
 │   ├── compression.yaml       # Content compression settings
 │   └── anti_crawler.yaml      # Anti-crawler protection settings
+├── examples/                   # Example screenshots
+│   ├── example_claude.jpg     # Claude Desktop usage example
+│   └── example_roocode.jpg    # RooCode usage example
 ├── tests/                     # Test files
 │   ├── unit/                  # Unit tests
 │   ├── integration/           # Integration tests

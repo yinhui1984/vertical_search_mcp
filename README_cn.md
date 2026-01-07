@@ -243,6 +243,14 @@ python mcp_server.py
 {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
 
+#### 示例截图
+
+`examples/` 文件夹包含使用 MCP 服务器的实际示例截图：
+- `example_claude.jpg`：Claude Desktop 使用 MCP 服务器进行搜索的示例
+- `example_roocode.jpg`：RooCode 使用 MCP 服务器进行搜索的示例
+
+这些截图展示了如何在不同的 AI 客户端使用 Vertical Search MCP 服务器。
+
 ### 直接使用
 
 ```python
@@ -425,6 +433,9 @@ vertical-search-mcp/
 │   ├── platforms.yaml         # 平台配置
 │   ├── compression.yaml       # 内容压缩设置
 │   └── anti_crawler.yaml      # 反爬虫保护设置
+├── examples/                   # 示例截图
+│   ├── example_claude.jpg     # Claude Desktop 使用示例
+│   └── example_roocode.jpg    # RooCode 使用示例
 ├── tests/                     # 测试文件
 │   ├── unit/                  # 单元测试
 │   ├── integration/           # 集成测试
