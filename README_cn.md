@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **多平台支持**：默认支持微信和知乎，可轻松扩展至其他平台
+- **多平台支持**：默认支持微信、Google Custom Search 和知乎，可轻松扩展至其他平台
 - **高性能**：浏览器复用机制，速度提升 5 倍
 - **真实 URL 解析**：自动解析重定向链接，获取最终目标 URL（例如，微信的 `mp.weixin.qq.com`，知乎的 `zhihu.com`）
 - **内容获取和压缩**：获取完整文章内容，使用 DeepSeek API 进行智能压缩
@@ -13,28 +13,16 @@
 
 ## 架构
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  MCP Client (Claude)                 │
-└────────────────────┬────────────────────────────────┘
-                     │ JSON-RPC 2.0
-┌────────────────────▼────────────────────────────────┐
-│              MCP Server (mcp_server.py)              │
-│  ┌─────────────────────────────────────────────┐   │
-│  │        UnifiedSearchManager                  │   │
-│  │  - Platform routing                          │   │
-│  │  - Browser pool management                   │   │
-│  │  - Cache management                          │   │
-│  └───────┬──────────────────────┬────────────────┘  │
-│          │                      │                    │
-│  ┌───────▼────────┐    ┌───────▼────────┐          │
-│  │ WeixinSearcher │    │ ZhihuSearcher  │   ...    │
-│  └────────┬───────┘    └────────┬───────┘          │
-└───────────┼──────────────────────┼──────────────────┘
-            │                      │
-┌───────────▼──────────────────────▼──────────────────┐
-│         Playwright Browser Pool (Persistent)       │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    Client["MCP Client<br/>(Claude)"] -->|"JSON-RPC 2.0"| Server["MCP Server<br/>(mcp_server.py)"]
+    Server --> Manager["UnifiedSearchManager<br/>- Platform routing<br/>- Browser pool management<br/>- Cache management"]
+    Manager --> Weixin["WeixinSearcher"]
+    Manager --> Google["GoogleSearcher"]
+    Manager --> Zhihu["ZhihuSearcher"]
+    Weixin --> BrowserPool["Playwright Browser Pool<br/>(Persistent)"]
+    Google --> BrowserPool
+    Zhihu --> BrowserPool
 ```
 
 ## 系统要求
@@ -89,7 +77,9 @@ MCP 服务器提供异步搜索工具（`start_vertical_search` 和 `get_search_
       "command": "/path/to/vertical-search-mcp/.venv/bin/python",
       "args": ["/path/to/vertical-search-mcp/mcp_server.py"],
       "env": {
-        "APIKEY_DEEPSEEK": "your-deepseek-api-key-here"
+        "APIKEY_DEEPSEEK": "your-deepseek-api-key-here",
+        "APIKEY_GOOGLE_CUSTOM_SEARCH": "your-google-api-key-here",
+        "APIKEY_GOOGLE_SEARCH_ID": "your-google-search-engine-id-here"
       }
     }
   }
@@ -100,10 +90,15 @@ MCP 服务器提供异步搜索工具（`start_vertical_search` 和 `get_search_
 - 将 `/path/to/vertical-search-mcp` 替换为项目目录的实际路径
 - 使用虚拟环境中的 Python 解释器（`.venv/bin/python`）
 - 如果使用系统级 Python，可以使用 `python3` 或 Python 解释器的完整路径
-- **内容压缩的 API 密钥**：如果需要智能内容压缩，请在 `env` 字段中添加 `APIKEY_DEEPSEEK`
-  - 从以下地址获取 API 密钥：https://platform.deepseek.com/
-  - **何时需要 API 密钥**：对于长文章（超过 3000 tokens），系统使用 DeepSeek API 智能压缩内容，同时保留关键信息。没有 API 密钥时，长文章将被截断，可能会丢失重要内容。
-  - **何时 API 密钥可选**：对于短文章（少于 3000 tokens），不需要压缩，因此不需要 API 密钥。
+- **API 密钥**：
+  - **内容压缩**（`APIKEY_DEEPSEEK`）：可选，用于智能内容压缩
+    - 从以下地址获取 API 密钥：https://platform.deepseek.com/
+    - **何时需要 API 密钥**：对于长文章（超过 3000 tokens），系统使用 DeepSeek API 智能压缩内容，同时保留关键信息。没有 API 密钥时，长文章将被截断，可能会丢失重要内容。
+    - **何时 API 密钥可选**：对于短文章（少于 3000 tokens），不需要压缩，因此不需要 API 密钥。
+  - **Google Custom Search**（`APIKEY_GOOGLE_CUSTOM_SEARCH`，`APIKEY_GOOGLE_SEARCH_ID`）：可选，用于 Google 搜索平台
+    - 从以下地址获取 API 密钥和搜索引擎 ID：https://developers.google.com/custom-search/v1/overview
+    - **提供凭证时**：Google 平台将自动注册并可用于搜索
+    - **缺少凭证时**：Google 平台将不可用，但其他平台（微信）将继续正常工作
 - 更新配置后，重启您的 AI 客户端（例如 Claude Desktop）
 
 #### 工具：异步搜索 API
@@ -115,7 +110,7 @@ MCP 服务器提供异步搜索工具，支持长时间运行的搜索而不会�
 启动异步搜索任务。立即返回 `task_id`（< 1 秒），允许搜索在后台运行。
 
 **参数：**
-- `platform`（必需）：要搜索的平台（`weixin` 或 `zhihu`）
+- `platform`（必需）：要搜索的平台（`weixin`、`google` 或 `zhihu`）
 - `query`（必需）：搜索查询字符串（1-100 个字符）
 - `max_results`（可选）：最大结果数（1-30，默认：10）
 - `include_content`（可选）：是否包含完整文章内容（默认：`true`）
@@ -242,6 +237,28 @@ python mcp_server.py
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_vertical_search", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
 {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
+
+#### 快速测试脚本
+
+您可以使用快速测试脚本来测试各个平台：
+
+```bash
+# 激活虚拟环境
+source .venv/bin/activate
+
+# 测试微信搜索
+python scripts/test_weixin.py "Python 异步编程" 10
+
+# 测试知乎搜索
+python scripts/test_zhihu.py "机器学习" 15
+
+# 测试 Google 搜索（需要 API 凭证）
+export APIKEY_GOOGLE_CUSTOM_SEARCH="your-api-key"
+export APIKEY_GOOGLE_SEARCH_ID="your-search-engine-id"
+python scripts/test_google.py "Python async programming" 10
+```
+
+这些脚本提供彩色输出并实时显示搜索进度。
 
 #### 示例截图
 
@@ -396,7 +413,20 @@ pytest --cov=. --cov-report=html
 
 # 运行特定测试
 pytest tests/unit/test_browser_pool.py -v
+
+# 运行 Google Custom Search 测试
+pytest tests/unit/test_google_searcher.py -v
+pytest tests/integration/test_google_search.py -v
+
+# 运行所有 Google 测试
+pytest tests/unit/test_google_searcher.py tests/integration/test_google_search.py -v
 ```
+
+**注意**: Google Custom Search 的集成测试需要 API 凭证：
+- `APIKEY_GOOGLE_CUSTOM_SEARCH`
+- `APIKEY_GOOGLE_SEARCH_ID`
+
+如果未设置凭证，集成测试将自动跳过。
 
 ### 代码质量
 
@@ -428,6 +458,7 @@ vertical-search-mcp/
 │   └── token_estimator.py    # Token 估算器
 ├── platforms/                 # 平台适配器
 │   ├── weixin_searcher.py     # 微信搜索器
+│   ├── google_searcher.py     # Google Custom Search 搜索器
 │   └── zhihu_searcher.py      # 知乎搜索器
 ├── config/                    # 配置文件
 │   ├── platforms.yaml         # 平台配置

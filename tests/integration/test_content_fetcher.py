@@ -3,7 +3,7 @@ Tests for content fetcher module.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from core.content_fetcher import ContentFetcher
 from core.browser_pool import BrowserPool
 
@@ -128,4 +128,3 @@ class TestContentFetcher:
         assert hash1 == hash2  # Same URL should produce same hash
         assert hash1 != hash3  # Different URLs should produce different hashes
         assert len(hash1) == 32  # MD5 hash length
-

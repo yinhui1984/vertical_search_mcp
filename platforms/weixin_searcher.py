@@ -132,76 +132,82 @@ class WeixinSearcher(BasePlatformSearcher):
             # This is faster than networkidle which waits for all network activity to stop
             max_nav_retries = 2
             nav_success = False
-            
+
             for nav_retry in range(max_nav_retries):
-                logger.debug(f"Navigating to URL (attempt {nav_retry + 1}/{max_nav_retries}): {url}")
+                logger.debug(
+                    f"Navigating to URL (attempt {nav_retry + 1}/{max_nav_retries}): {url}"
+                )
                 await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                
+
                 # Check actual URL after navigation (may have been redirected)
                 actual_url = page.url
-                
+
                 # Check if redirected to root or base URL (without query params)
                 is_root_redirect = (
-                    actual_url == "https://weixin.sogou.com/" or
-                    actual_url == "https://weixin.sogou.com" or
-                    actual_url == self.base_url or 
-                    actual_url == f"{self.base_url}/" or
-                    ("query=" not in actual_url and "weixin.sogou.com" in actual_url)
+                    actual_url == "https://weixin.sogou.com/"
+                    or actual_url == "https://weixin.sogou.com"
+                    or actual_url == self.base_url
+                    or actual_url == f"{self.base_url}/"
+                    or ("query=" not in actual_url and "weixin.sogou.com" in actual_url)
                 )
-                
+
                 if actual_url != url:
                     logger.warning(
                         f"URL changed after navigation. Expected: {url}, Actual: {actual_url}"
                     )
-                    
+
                     # If redirected to base URL without params, this indicates a problem
                     if is_root_redirect:
                         logger.warning(
-                            f"Page was redirected to base/root URL. This may indicate: "
-                            f"1) Invalid query parameters, 2) Anti-crawler redirect, "
-                            f"3) Search service unavailable"
+                            "Page was redirected to base/root URL. This may indicate: "
+                            "1) Invalid query parameters, 2) Anti-crawler redirect, "
+                            "3) Search service unavailable"
                         )
-                        
+
                         if nav_retry < max_nav_retries - 1:
-                            logger.info(f"Retrying navigation after {2 * (nav_retry + 1)} seconds...")
+                            logger.info(
+                                f"Retrying navigation after {2 * (nav_retry + 1)} seconds..."
+                            )
                             await asyncio.sleep(2 * (nav_retry + 1))  # Exponential backoff
                             continue
                         else:
                             # Last retry, return empty
-                            logger.error("All navigation retries exhausted, returning empty results")
+                            logger.error(
+                                "All navigation retries exhausted, returning empty results"
+                            )
                             return []
-                
+
                 # Wait a bit for any redirects to complete
                 await asyncio.sleep(1.0)
-                
+
                 # Check actual URL again after waiting
                 final_url = page.url
-                
+
                 # Check if we successfully reached search results
                 has_query_param = "query=" in final_url
                 is_valid_url = (
-                    final_url == url or 
-                    has_query_param or
-                    (final_url.startswith("https://weixin.sogou.com/weixin") and has_query_param)
+                    final_url == url
+                    or has_query_param
+                    or (final_url.startswith("https://weixin.sogou.com/weixin") and has_query_param)
                 )
-                
+
                 if is_valid_url:
                     # Successfully reached search results page
                     logger.info(f"Successfully navigated to search results: {final_url[:100]}")
                     nav_success = True
                     break
-                
+
                 # Still redirected after waiting
                 logger.error(
                     f"Page still redirected after wait. "
                     f"Original URL: {url}, Final URL: {final_url}"
                 )
-                
+
                 if nav_retry < max_nav_retries - 1:
                     logger.info(f"Retrying navigation after {2 * (nav_retry + 1)} seconds...")
                     await asyncio.sleep(2 * (nav_retry + 1))
                     continue
-                
+
                 # Last retry failed, check for common issues
                 try:
                     page_content = await page.content()
@@ -213,10 +219,10 @@ class WeixinSearcher(BasePlatformSearcher):
                         return []
                 except Exception as e:
                     logger.debug(f"Could not check page content: {e}")
-                
+
                 logger.error("Failed all retries, returning empty results")
                 return []
-            
+
             if not nav_success:
                 logger.error("Failed to navigate to search results page after all retries")
                 return []
@@ -271,7 +277,9 @@ class WeixinSearcher(BasePlatformSearcher):
                     # Sometimes results load just after domcontentloaded
                     first_selector = selectors[0] if selectors else None
                     if first_selector:
-                        logger.info(f"Retrying first selector with longer timeout: {first_selector}")
+                        logger.info(
+                            f"Retrying first selector with longer timeout: {first_selector}"
+                        )
                         await page.wait_for_selector(first_selector, timeout=8000, state="visible")
                         page_loaded = True
                         logger.info(f"Successfully matched selector on retry: {first_selector}")
@@ -294,7 +302,9 @@ class WeixinSearcher(BasePlatformSearcher):
                 try:
                     page_content = await page.content()
                     if "验证码" in page_content or "captcha" in page_content.lower():
-                        logger.warning("Page may contain CAPTCHA (found '验证码' or 'captcha' in content)")
+                        logger.warning(
+                            "Page may contain CAPTCHA (found '验证码' or 'captcha' in content)"
+                        )
                     if "登录" in page_content and "需要登录" in page_content:
                         logger.warning("Page may require login (found login indicators)")
                     if "没有找到" in page_content or "no results" in page_content.lower():
@@ -344,16 +354,16 @@ class WeixinSearcher(BasePlatformSearcher):
 
                 # Track current page to avoid unnecessary navigation
                 current_page_num: int = 0  # 0 means unknown
-                
+
                 # Helper function to navigate to a specific page
                 async def navigate_to_page(page_num: int) -> bool:
                     """Navigate to a specific page number (1-based)."""
                     nonlocal current_page_num
-                    
+
                     # If already on the target page, no need to navigate
                     if current_page_num == page_num:
                         return True
-                    
+
                     if page_num == 1:
                         # Navigate to first page
                         try:
@@ -367,12 +377,18 @@ class WeixinSearcher(BasePlatformSearcher):
                                     first_page_btn = await page.query_selector(selector)
                                     if first_page_btn:
                                         await first_page_btn.click()
-                                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                                        await page.wait_for_load_state(
+                                            "domcontentloaded", timeout=5000
+                                        )
                                         # Wait for results to load
-                                        selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                                        selectors_list = self.config.get("selectors", {}).get(
+                                            "article_list", []
+                                        )
                                         for sel in selectors_list:
                                             try:
-                                                await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                                await page.wait_for_selector(
+                                                    sel, timeout=2000, state="visible"
+                                                )
                                                 current_page_num = 1
                                                 return True
                                             except Exception:
@@ -381,11 +397,13 @@ class WeixinSearcher(BasePlatformSearcher):
                                         return True
                                 except Exception:
                                     continue
-                            
+
                             # If no first page button found, reload the search URL
                             self.logger.debug("No first page button found, reloading search URL")
                             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                            selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                            selectors_list = self.config.get("selectors", {}).get(
+                                "article_list", []
+                            )
                             for sel in selectors_list:
                                 try:
                                     await page.wait_for_selector(sel, timeout=2000, state="visible")
@@ -396,9 +414,13 @@ class WeixinSearcher(BasePlatformSearcher):
                             current_page_num = 1
                             return True
                         except Exception as e:
-                            self.logger.warning(f"Failed to navigate to first page: {e}, reloading URL")
+                            self.logger.warning(
+                                f"Failed to navigate to first page: {e}, reloading URL"
+                            )
                             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                            selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                            selectors_list = self.config.get("selectors", {}).get(
+                                "article_list", []
+                            )
                             for sel in selectors_list:
                                 try:
                                     await page.wait_for_selector(sel, timeout=2000, state="visible")
@@ -413,30 +435,38 @@ class WeixinSearcher(BasePlatformSearcher):
                         # First ensure we're on page 1, then navigate forward
                         if not await navigate_to_page(1):
                             return False
-                        
+
                         # Navigate forward to target page
                         for _ in range(page_num - 1):
                             next_page_selector = self.config.get("selectors", {}).get("next_page")
                             if not next_page_selector:
                                 return False
-                            
+
                             try:
                                 next_button = await page.query_selector(next_page_selector)
                                 if not next_button:
                                     return False
-                                
+
                                 is_disabled = await next_button.get_attribute("disabled")
                                 class_name = await next_button.get_attribute("class") or ""
-                                if is_disabled or "disabled" in class_name.lower() or "nop" in class_name.lower():
+                                if (
+                                    is_disabled
+                                    or "disabled" in class_name.lower()
+                                    or "nop" in class_name.lower()
+                                ):
                                     return False
-                                
+
                                 await next_button.click()
                                 await page.wait_for_load_state("domcontentloaded", timeout=5000)
                                 # Wait for results to load
-                                selectors_list = self.config.get("selectors", {}).get("article_list", [])
+                                selectors_list = self.config.get("selectors", {}).get(
+                                    "article_list", []
+                                )
                                 for sel in selectors_list:
                                     try:
-                                        await page.wait_for_selector(sel, timeout=2000, state="visible")
+                                        await page.wait_for_selector(
+                                            sel, timeout=2000, state="visible"
+                                        )
                                         break
                                     except Exception:
                                         continue
@@ -445,11 +475,11 @@ class WeixinSearcher(BasePlatformSearcher):
                             except Exception as e:
                                 self.logger.warning(f"Error navigating to page {page_num}: {e}")
                                 return False
-                        
+
                         # Update current page number to target page
                         current_page_num = page_num
                         return True
-                
+
                 # Helper function to get link element by result index
                 async def get_link_element_by_index(result_idx: int) -> Optional[ElementHandle]:
                     """Get link element for a specific result index by navigating to the correct page."""
@@ -457,12 +487,14 @@ class WeixinSearcher(BasePlatformSearcher):
                     page_index = result_idx // RESULTS_PER_PAGE  # 0-based
                     page_num = page_index + 1  # 1-based
                     page_result_idx = result_idx % RESULTS_PER_PAGE  # Index within the page
-                    
+
                     # Navigate to the correct page
                     if not await navigate_to_page(page_num):
-                        self.logger.warning(f"Failed to navigate to page {page_num} for result index {result_idx}")
+                        self.logger.warning(
+                            f"Failed to navigate to page {page_num} for result index {result_idx}"
+                        )
                         return None
-                    
+
                     # Find the link element on current page
                     selectors_list = self.config.get("selectors", {}).get("article_list", [])
                     for selector in selectors_list:
@@ -474,9 +506,11 @@ class WeixinSearcher(BasePlatformSearcher):
                                 if link_elem:
                                     return link_elem
                         except Exception as e:
-                            self.logger.debug(f"Error with selector {selector} on page {page_num}: {e}")
+                            self.logger.debug(
+                                f"Error with selector {selector} on page {page_num}: {e}"
+                            )
                             continue
-                    
+
                     return None
 
                 # Resolve URLs by clicking links on the search results page
@@ -490,7 +524,7 @@ class WeixinSearcher(BasePlatformSearcher):
 
                         # Get link element by navigating to the correct page
                         link_element = await get_link_element_by_index(result_idx)
-                        
+
                         if not link_element:
                             self.logger.warning(
                                 f"Could not find link element for result index {result_idx}"
@@ -552,9 +586,7 @@ class WeixinSearcher(BasePlatformSearcher):
                                 resolved_urls.append(None)
                                 await new_page.close()
                         except Exception as e:
-                            self.logger.error(
-                                f"Error clicking link {idx + 1}: {e}", exc_info=True
-                            )
+                            self.logger.error(f"Error clicking link {idx + 1}: {e}", exc_info=True)
                             resolved_urls.append(None)
 
                         # Small delay between clicks

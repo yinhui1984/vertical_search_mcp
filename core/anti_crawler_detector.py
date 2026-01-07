@@ -103,9 +103,7 @@ class AntiCrawlerDetector:
             return content_result
 
         # No detection
-        return DetectionResult(
-            detected=False, detection_type=DetectionType.NONE, confidence=0.0
-        )
+        return DetectionResult(detected=False, detection_type=DetectionType.NONE, confidence=0.0)
 
     async def _check_url_patterns(self, url: str, platform: str) -> DetectionResult:
         """
@@ -151,9 +149,7 @@ class AntiCrawlerDetector:
                         details=f"URL pattern '{pattern}' matched",
                     )
 
-        return DetectionResult(
-            detected=False, detection_type=DetectionType.NONE, confidence=0.0
-        )
+        return DetectionResult(detected=False, detection_type=DetectionType.NONE, confidence=0.0)
 
     async def _check_content_patterns(self, page: Page, platform: str) -> DetectionResult:
         """
@@ -202,20 +198,30 @@ class AntiCrawlerDetector:
                         if pattern_lower in content_lower:
                             # Additional context checks for captcha
                             captcha_contexts = [
-                                "验证码", "captcha", "verify code", "verification code",
-                                "请输入", "please enter", "输入验证码", "enter code"
+                                "验证码",
+                                "captcha",
+                                "verify code",
+                                "verification code",
+                                "请输入",
+                                "please enter",
+                                "输入验证码",
+                                "enter code",
                             ]
                             # Check if captcha context appears near the pattern
                             pattern_index = content_lower.find(pattern_lower)
                             if pattern_index >= 0:
                                 # Check surrounding context (200 chars before and after)
                                 context_start = max(0, pattern_index - 200)
-                                context_end = min(len(content_lower), pattern_index + len(pattern_lower) + 200)
+                                context_end = min(
+                                    len(content_lower), pattern_index + len(pattern_lower) + 200
+                                )
                                 context = content_lower[context_start:context_end]
-                                
+
                                 # Only trigger if captcha context is found
                                 if any(ctx in context for ctx in captcha_contexts):
-                                    detection_enum = self._get_detection_type_from_string(detection_type)
+                                    detection_enum = self._get_detection_type_from_string(
+                                        detection_type
+                                    )
                                     logger.warning(
                                         f"{detection_enum.value} detected by content pattern '{pattern}' with context"
                                     )
@@ -242,9 +248,7 @@ class AntiCrawlerDetector:
         except Exception as e:
             logger.warning(f"Error checking content patterns: {e}")
 
-        return DetectionResult(
-            detected=False, detection_type=DetectionType.NONE, confidence=0.0
-        )
+        return DetectionResult(detected=False, detection_type=DetectionType.NONE, confidence=0.0)
 
     def _get_detection_type_from_string(self, detection_type: str) -> DetectionType:
         """
@@ -283,4 +287,3 @@ class AntiCrawlerDetector:
             # Ensure all items are strings
             return [str(p) for p in patterns]
         return []
-

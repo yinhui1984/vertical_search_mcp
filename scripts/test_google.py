@@ -1,10 +1,15 @@
 """
-Quick test script to search on multiple platforms.
+Quick test script for Google Custom Search platform.
 
 Usage:
-    python quick_test.py
+    python test_google.py [query] [max_results]
 
-Environment variables (optional):
+Examples:
+    python test_google.py
+    python test_google.py "Python async programming" 10
+    python test_google.py "web3 trends 2026" 15
+
+Environment variables (required):
     APIKEY_GOOGLE_CUSTOM_SEARCH: Google Custom Search API key
     APIKEY_GOOGLE_SEARCH_ID: Google Custom Search Engine ID
 """
@@ -19,7 +24,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from core.search_manager import UnifiedSearchManager
-from platforms.weixin_searcher import WeixinSearcher
 from platforms.google_searcher import GoogleSearcher
 
 # ANSI color codes
@@ -35,15 +39,13 @@ RED = "\033[31m"
 
 
 async def test_search(
-    platform_name: str,
     manager: UnifiedSearchManager,
-    platform: str,
     query: str,
     max_results: int = 15,
 ) -> None:
     """Test search and print results."""
     print(f"\n{GRAY}{'='*80}{RESET}")
-    print(f"{BOLD}{CYAN}{platform_name}{RESET}: {GRAY}'{query}'{RESET}")
+    print(f"{BOLD}{CYAN}Google Search{RESET}: {GRAY}'{query}'{RESET}")
     print(f"{GRAY}{'='*80}{RESET}")
 
     # Progress tracking
@@ -69,7 +71,7 @@ async def test_search(
 
     try:
         results = await manager.search(
-            platform=platform,
+            platform="google",
             query=query,
             max_results=max_results,
             include_content=True,
@@ -83,15 +85,20 @@ async def test_search(
         print(f"{GRAY}  Found {len(results)} results{RESET}\n")
 
         for i, result in enumerate(results, 1):
-            # MCP returned data - highlight with colors
             title = result.get("title", "N/A")
             url = result.get("url", "N/A")
             content = result.get("content", "")
             content_status = result.get("content_status", "")
+            snippet = result.get("snippet", "")
+            date = result.get("date", "")
 
-            # Script label (gray) + MCP data (colored)
             print(f"{GRAY}[{i}]{RESET} {GREEN}{BOLD}{title}{RESET}")
             print(f"{GRAY}    URL:{RESET} {BLUE}{url}{RESET}")
+            
+            if date:
+                print(f"{GRAY}    Date:{RESET} {MAGENTA}{date}{RESET}")
+            if snippet:
+                print(f"{GRAY}    Snippet:{RESET} {CYAN}{snippet[:200]}{'...' if len(snippet) > 200 else ''}{RESET}")
             
             if content:
                 # Status color coding
@@ -118,33 +125,36 @@ async def test_search(
 
 
 async def main() -> None:
-    """Main function to run quick tests."""
-    query = "web3 趋势 2026"
-    max_results = 15
-
-    manager = UnifiedSearchManager()
-    
-    # Register Weixin platform
-    manager.register_platform("weixin", WeixinSearcher(manager.browser_pool))
-    
-    # Register Google platform if credentials are available
+    """Main function to run Google search test."""
+    # Check credentials
     google_api_key = os.getenv("APIKEY_GOOGLE_CUSTOM_SEARCH")
     google_search_id = os.getenv("APIKEY_GOOGLE_SEARCH_ID")
-    if google_api_key and google_search_id:
-        manager.register_platform("google", GoogleSearcher(manager.browser_pool))
-        print(f"{GREEN}Google Custom Search platform registered{RESET}")
-    else:
-        print(f"{YELLOW}Google Custom Search not available (credentials not set){RESET}")
+    
+    if not google_api_key:
+        print(f"{RED}✗ APIKEY_GOOGLE_CUSTOM_SEARCH not set{RESET}")
+        print(f"{YELLOW}  Set it with: export APIKEY_GOOGLE_CUSTOM_SEARCH='your-api-key'{RESET}")
+        sys.exit(1)
+    
+    if not google_search_id:
+        print(f"{RED}✗ APIKEY_GOOGLE_SEARCH_ID not set{RESET}")
+        print(f"{YELLOW}  Set it with: export APIKEY_GOOGLE_SEARCH_ID='your-search-engine-id'{RESET}")
+        sys.exit(1)
+
+    # Get query from command line or use default
+    query = sys.argv[1] if len(sys.argv) > 1 else "web3 trends 2026"
+    max_results = int(sys.argv[2]) if len(sys.argv) > 2 else 15
+
+    print(f"{BOLD}{CYAN}Google Custom Search Test{RESET}\n")
+    print(f"{GREEN}✓ API Key: {google_api_key[:20]}...{RESET}")
+    print(f"{GREEN}✓ Search Engine ID: {google_search_id}{RESET}\n")
+    print(f"{BOLD}Query:{RESET} {CYAN}'{query}'{RESET}")
+    print(f"{BOLD}Max Results:{RESET} {CYAN}{max_results}{RESET}\n")
+
+    manager = UnifiedSearchManager()
+    manager.register_platform("google", GoogleSearcher(manager.browser_pool))
 
     try:
-        # Test Weixin search
-        await test_search("Weixin", manager, "weixin", query, max_results)
-        
-        # Test Google search if available
-        if google_api_key and google_search_id:
-            # Use English query for Google (better results)
-            google_query = "web3 trends 2026"
-            await test_search("Google", manager, "google", google_query, max_results)
+        await test_search(manager, query, max_results)
     finally:
         await manager.close()
         print(f"{GREEN}Done{RESET}")

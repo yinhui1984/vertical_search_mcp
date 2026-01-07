@@ -7,7 +7,7 @@ Tests task creation, progress updates, status transitions, cleanup, and concurre
 import asyncio
 import pytest
 from datetime import datetime, timedelta
-from core.task_manager import TaskManager, TaskStatus, TaskProgress, SearchTask
+from core.task_manager import TaskManager, TaskStatus
 
 
 @pytest.mark.asyncio
@@ -53,9 +53,7 @@ async def test_update_task_status():
     assert task.status == TaskStatus.RUNNING
 
     results = [{"title": "Test", "url": "http://test.com"}]
-    await manager.update_task_status(
-        task_id, TaskStatus.COMPLETED, results=results
-    )
+    await manager.update_task_status(task_id, TaskStatus.COMPLETED, results=results)
     task = await manager.get_task(task_id)
     assert task is not None
     assert task.status == TaskStatus.COMPLETED
@@ -153,9 +151,7 @@ async def test_status_transitions():
     assert task.status == TaskStatus.RUNNING
 
     # RUNNING -> COMPLETED
-    await manager.update_task_status(
-        task_id, TaskStatus.COMPLETED, results=[]
-    )
+    await manager.update_task_status(task_id, TaskStatus.COMPLETED, results=[])
     task = await manager.get_task(task_id)
     assert task.status == TaskStatus.COMPLETED
 
@@ -166,9 +162,7 @@ async def test_status_transitions():
         max_results=10,
     )
     await manager.update_task_status(task_id2, TaskStatus.RUNNING)
-    await manager.update_task_status(
-        task_id2, TaskStatus.FAILED, error="Network error"
-    )
+    await manager.update_task_status(task_id2, TaskStatus.FAILED, error="Network error")
     task = await manager.get_task(task_id2)
     assert task.status == TaskStatus.FAILED
     assert task.error == "Network error"
@@ -201,9 +195,7 @@ async def test_cancel_task():
         platform="weixin",
         max_results=10,
     )
-    await manager.update_task_status(
-        task_id2, TaskStatus.COMPLETED, results=[]
-    )
+    await manager.update_task_status(task_id2, TaskStatus.COMPLETED, results=[])
     result = await manager.cancel_task(task_id2)
     assert result is False
 
@@ -260,7 +252,7 @@ async def test_list_active_tasks():
     await manager.cleanup_old_tasks(max_age_minutes=0)
 
     # Create multiple tasks
-    task_id1 = await manager.create_task(
+    await manager.create_task(
         query="test1",
         platform="weixin",
         max_results=10,
@@ -283,9 +275,7 @@ async def test_list_active_tasks():
     )
 
     # Mark one as completed (should not appear in active list)
-    await manager.update_task_status(
-        task_id3, TaskStatus.COMPLETED, results=[]
-    )
+    await manager.update_task_status(task_id3, TaskStatus.COMPLETED, results=[])
 
     # List active tasks
     active = await manager.list_active_tasks()
@@ -401,4 +391,3 @@ async def test_singleton_pattern():
     task = await manager2.get_task(task_id)
     assert task is not None
     assert task.query == "test"
-

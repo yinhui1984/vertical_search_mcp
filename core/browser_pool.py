@@ -130,7 +130,9 @@ class BrowserPool:
                 )
                 await context.route("**/*", route_handler)
                 self.contexts.append(context)
-                logger.debug(f"Created context {i+1}/{num_contexts} with User-Agent: {user_agent[:50]}...")
+                logger.debug(
+                    f"Created context {i+1}/{num_contexts} with User-Agent: {user_agent[:50]}..."
+                )
 
     async def get_page(self) -> Page:
         """

@@ -2,7 +2,6 @@
 Tests for token estimator module.
 """
 
-import pytest
 from core.token_estimator import TokenEstimator
 
 
@@ -77,4 +76,3 @@ class TestTokenEstimator:
         tokens = estimator.estimate_tokens(text)
         # Should have safety margin
         assert tokens >= 10
-

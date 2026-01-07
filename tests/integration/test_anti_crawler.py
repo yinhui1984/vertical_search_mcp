@@ -131,6 +131,7 @@ class TestAntiCrawlerIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_requests(self, manager: UnifiedSearchManager) -> None:
         """Test concurrent requests with rate limiting."""
+
         async def search_task(query: str) -> list:
             try:
                 return await manager.search("weixin", query, max_results=3, use_cache=False)
@@ -175,4 +176,3 @@ class TestAntiCrawlerIntegration:
 
         # Both should work (or both hit rate limit)
         # The important thing is that they use different limiters
-

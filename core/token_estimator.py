@@ -84,4 +84,3 @@ class TokenEstimator:
                 total += self.estimate_tokens(content)
 
         return total
-

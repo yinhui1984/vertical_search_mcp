@@ -8,7 +8,6 @@ This module provides a centralized logging configuration that:
 """
 
 import logging
-import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -54,7 +53,7 @@ def setup_logger(
         # Fallback to user home directory if project root is not writable
         project_root = Path(__file__).parent.parent.absolute()
         user_home = Path.home()
-        
+
         log_file = None
         # Try project root first
         log_dir = project_root / "logs"
@@ -94,7 +93,7 @@ def setup_logger(
                 except (OSError, PermissionError):
                     # Can't create directory, skip file logging
                     log_file = None
-            
+
             if log_file:
                 file_handler = RotatingFileHandler(
                     log_file,
@@ -151,4 +150,3 @@ def get_logger(name: str = "vertical_search") -> logging.Logger:
         setup_logger(name=name)
 
     return logger
-

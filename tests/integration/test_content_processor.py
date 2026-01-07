@@ -54,13 +54,16 @@ class TestContentProcessor:
     @pytest.fixture
     def processor(self, mock_browser_pool, mock_cache, platform_config, compression_config):
         """Create ContentProcessor instance."""
-        with patch("core.content_processor.ContentFetcher") as mock_fetcher_class, patch(
-            "core.content_processor.ContentCompressor"
-        ) as mock_compressor_class:
+        with (
+            patch("core.content_processor.ContentFetcher") as mock_fetcher_class,
+            patch("core.content_processor.ContentCompressor") as mock_compressor_class,
+        ):
             mock_fetcher = MagicMock()
+
             # Return actual string content, not MagicMock
             async def fetch_content_side_effect(url, platform, timeout=10):
                 return "Fetched content for " + url
+
             mock_fetcher.fetch_content = AsyncMock(side_effect=fetch_content_side_effect)
             mock_fetcher.get_url_hash = staticmethod(lambda url: "hash123")
             mock_fetcher_class.return_value = mock_fetcher
@@ -131,4 +134,3 @@ class TestContentProcessor:
         """Test processing empty results."""
         processed = await processor.process_results([], "weixin")
         assert processed == []
-

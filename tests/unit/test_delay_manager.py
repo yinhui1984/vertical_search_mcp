@@ -11,7 +11,6 @@ Test strategy:
 
 import pytest
 import asyncio
-import time
 from unittest.mock import patch, AsyncMock
 from core.delay_manager import DelayManager
 
@@ -172,7 +171,6 @@ class TestDelayManager:
         manager = DelayManager(config)
 
         # Should not raise error, just not delay
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             await manager.apply_delay("test")
             # May or may not sleep depending on defaults
-

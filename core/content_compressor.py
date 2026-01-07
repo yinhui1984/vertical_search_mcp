@@ -9,7 +9,7 @@ import os
 import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from openai import AsyncOpenAI
-from openai import RateLimitError, APIError
+from openai import RateLimitError
 from core.logger import get_logger
 from core.config_loader import load_compression_config
 
@@ -92,13 +92,14 @@ Output format:
             try:
                 # Check if SOCKS proxy is configured and handle it properly
                 import httpx
-                
+
                 # Check for SOCKS proxy in environment
                 all_proxy = os.getenv("ALL_PROXY") or os.getenv("all_proxy")
                 if all_proxy and all_proxy.startswith("socks"):
                     # SOCKS proxy detected - need socksio package
                     try:
-                        import socksio  # type: ignore[import-untyped]
+                        import socksio  # noqa: F401
+
                         # Create httpx client with SOCKS proxy support
                         self._http_client = httpx.AsyncClient(
                             proxy=all_proxy,
@@ -126,7 +127,7 @@ Output format:
                         timeout=httpx.Timeout(self.api_config.get("timeout", 30)),
                     )
                     self.logger.debug("Initialized httpx client without proxy (trust_env=False)")
-                
+
                 self.client = AsyncOpenAI(
                     api_key=api_key,
                     base_url="https://api.deepseek.com/v1",
@@ -146,7 +147,7 @@ Output format:
     async def close(self) -> None:
         """
         Clean up resources, safely close HTTP client.
-        
+
         This method should be called when the compressor is no longer needed
         to prevent resource leaks and avoid AttributeError on client close.
         """
@@ -161,11 +162,11 @@ Output format:
                 self.logger.warning(f"Error closing HTTP client: {e}")
             finally:
                 self._http_client = None
-        
+
         if self.client:
             # AsyncOpenAI client cleanup
             try:
-                if hasattr(self.client, '_client') and hasattr(self.client._client, 'close'):
+                if hasattr(self.client, "_client") and hasattr(self.client._client, "close"):
                     await self.client._client.close()
             except Exception as e:
                 self.logger.debug(f"Error closing OpenAI client: {e}")
@@ -195,7 +196,7 @@ Output format:
                 f"Content length: {len(content)} chars, target: {max_tokens} tokens"
             )
             return self._truncate(content, max_tokens), "truncated"
-        
+
         self.logger.info(
             f"Attempting to compress content: {len(content)} chars -> target {max_tokens} tokens"
         )
@@ -264,14 +265,10 @@ Output format:
             return self._truncate(content, max_tokens), "truncated"
 
         except Exception as e:
-            self.logger.error(
-                f"Compression failed: {e}, using truncation fallback", exc_info=True
-            )
+            self.logger.error(f"Compression failed: {e}, using truncation fallback", exc_info=True)
             return self._truncate(content, max_tokens), "truncated"
 
-    async def compress_article(
-        self, article: Dict[str, Any], max_tokens: int
-    ) -> Dict[str, Any]:
+    async def compress_article(self, article: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
         """
         Compress a single article's content.
 
@@ -288,11 +285,11 @@ Output format:
 
         title = article.get("title", "Unknown")
         self.logger.info(f"Compressing article: '{title}' ({len(content)} chars)")
-        
+
         compressed, status = await self.compress_content(content, max_tokens)
         article["content"] = compressed
         article["content_status"] = status
-        
+
         self.logger.info(
             f"Article compression completed: '{title}' -> status: {status}, "
             f"{len(compressed)} chars"
@@ -325,6 +322,10 @@ Output format:
                 batch_content.append(f"### Article {i+1}: {title}\n\n{content}")
 
         combined_content = "\n\n".join(batch_content)
+
+        if not self.client:
+            self.logger.error("DeepSeek API client not initialized. Cannot compress batch.")
+            return articles
 
         try:
             response = await asyncio.wait_for(
@@ -383,4 +384,3 @@ Output format:
         if len(content) <= max_chars:
             return content
         return content[: max_chars - 3] + "..."
-

@@ -3,8 +3,7 @@ Tests for MCP server content integration.
 """
 
 import pytest
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from mcp_server import MCPServer
 from core.search_manager import UnifiedSearchManager
 
@@ -141,4 +140,3 @@ class TestMCPContent:
         assert properties["include_content"]["type"] == "boolean"
         # Default value is True (more user-friendly, users typically want content)
         assert properties["include_content"]["default"] is True
-

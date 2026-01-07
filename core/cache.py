@@ -126,7 +126,7 @@ class SearchCache:
         key = f"content:{url_hash}"
         result = self.get(key)
         if result is not None:
-            return result  # type: ignore[return-value]
+            return str(result)
         return None
 
     def set_content(self, url_hash: str, content: str, ttl: int = 3600) -> None:
@@ -145,9 +145,7 @@ class SearchCache:
 
         self.cache[key] = (content, time.time() + ttl)
 
-    def get_compressed(
-        self, url_hash: str, max_tokens: int
-    ) -> Optional[str]:
+    def get_compressed(self, url_hash: str, max_tokens: int) -> Optional[str]:
         """
         Get cached compressed content.
 
@@ -161,7 +159,7 @@ class SearchCache:
         key = f"compressed:{url_hash}:{max_tokens}"
         result = self.get(key)
         if result is not None:
-            return result  # type: ignore[return-value]
+            return str(result)
         return None
 
     def set_compressed(

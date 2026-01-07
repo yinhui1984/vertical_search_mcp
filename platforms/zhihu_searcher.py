@@ -262,7 +262,9 @@ class ZhihuSearcher(BasePlatformSearcher):
                                     and "sogou.com" not in new_page_url
                                 ):
                                     # Check if the resolved URL is an anti-crawler page
-                                    detection = await self.detector.detect(new_page, platform="zhihu")
+                                    detection = await self.detector.detect(
+                                        new_page, platform="zhihu"
+                                    )
                                     if detection.detected:
                                         self.logger.warning(
                                             f"Anti-crawler page detected for resolved URL {idx + 1}: "
@@ -311,11 +313,13 @@ class ZhihuSearcher(BasePlatformSearcher):
                         self.logger.warning(
                             f"URL resolution failed for result {i}, will remove from results"
                         )
-                
+
                 # Remove failed results in reverse order to maintain indices
                 for i in sorted(indices_to_remove, reverse=True):
                     removed_result = results.pop(i)
-                    self.logger.debug(f"Removed result with failed URL resolution: {removed_result.get('title', 'Unknown')}")
+                    self.logger.debug(
+                        f"Removed result with failed URL resolution: {removed_result.get('title', 'Unknown')}"
+                    )
 
             # Close the search page
             await page.close()

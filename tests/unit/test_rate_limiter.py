@@ -10,7 +10,6 @@ Test strategy:
 
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
 from core.rate_limiter import TokenBucketRateLimiter, RateLimitManager
 from core.exceptions import RateLimitExceeded
 
@@ -29,9 +28,7 @@ class TestTokenBucketRateLimiter:
     @pytest.mark.asyncio
     async def test_acquire_exceeds_limit_reject(self) -> None:
         """Test rejection when limit exceeded."""
-        limiter = TokenBucketRateLimiter(
-            max_tokens=2, refill_rate=0.1, on_limit_exceeded="reject"
-        )
+        limiter = TokenBucketRateLimiter(max_tokens=2, refill_rate=0.1, on_limit_exceeded="reject")
 
         assert await limiter.acquire() is True
         assert await limiter.acquire() is True
@@ -40,9 +37,7 @@ class TestTokenBucketRateLimiter:
     @pytest.mark.asyncio
     async def test_acquire_exceeds_limit_delay(self) -> None:
         """Test delay when limit exceeded."""
-        limiter = TokenBucketRateLimiter(
-            max_tokens=1, refill_rate=1.0, on_limit_exceeded="delay"
-        )
+        limiter = TokenBucketRateLimiter(max_tokens=1, refill_rate=1.0, on_limit_exceeded="delay")
 
         assert await limiter.acquire() is True
 
@@ -197,4 +192,3 @@ class TestRateLimitManager:
 
         # Should work without rate limiting
         assert await manager.acquire("test") is True
-

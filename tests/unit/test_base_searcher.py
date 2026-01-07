@@ -141,8 +141,32 @@ class TestBasePlatformSearcher:
     def test_abstract_methods_required(self) -> None:
         """Test that abstract methods must be implemented."""
 
-        # Create a class that doesn't implement all abstract methods
-        class IncompleteSearcher(BasePlatformSearcher):
+        # Create a class that doesn't implement _load_config (required abstract method)
+        class IncompleteSearcher1(BasePlatformSearcher):
+            async def search(
+                self, query: str, max_results: int = 10, **kwargs: Any
+            ) -> List[Dict[str, str]]:
+                return []
+
+            # Missing _load_config implementation
+
+        pool = BrowserPool()
+        with pytest.raises(TypeError):
+            IncompleteSearcher1(pool)  # type: ignore
+
+        # Create a class that doesn't implement search (required abstract method)
+        class IncompleteSearcher2(BasePlatformSearcher):
+            def _load_config(self) -> Dict[str, Any]:
+                return {}
+
+            # Missing search implementation
+
+        with pytest.raises(TypeError):
+            IncompleteSearcher2(pool)  # type: ignore
+
+        # _extract_item is now optional (has default implementation)
+        # So a class implementing only _load_config and search should work
+        class CompleteSearcher(BasePlatformSearcher):
             def _load_config(self) -> Dict[str, Any]:
                 return {}
 
@@ -151,8 +175,8 @@ class TestBasePlatformSearcher:
             ) -> List[Dict[str, str]]:
                 return []
 
-            # Missing _extract_item implementation
+            # _extract_item not implemented - should work (uses default)
 
-        pool = BrowserPool()
-        with pytest.raises(TypeError):
-            IncompleteSearcher(pool)  # type: ignore
+        # Should not raise TypeError
+        searcher = CompleteSearcher(pool)
+        assert searcher is not None

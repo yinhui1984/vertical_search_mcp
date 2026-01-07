@@ -94,9 +94,7 @@ def load_compression_config() -> Dict[str, Any]:
     config_path = Path(__file__).parent.parent / "config" / "compression.yaml"
 
     if not config_path.exists():
-        logger.warning(
-            f"Compression config file not found: {config_path}, using defaults"
-        )
+        logger.warning(f"Compression config file not found: {config_path}, using defaults")
         # Return default configuration
         return {
             "compression": {
@@ -121,4 +119,3 @@ def load_compression_config() -> Dict[str, Any]:
         config: Dict[str, Any] = yaml.safe_load(f) or {}
 
     return config
-

@@ -421,7 +421,7 @@ class TestMCPServerIntegration:
         tools = response_captured["result"]["tools"]
         tool = tools[0]
         description = tool["description"]
-        
+
         # Check that description mentions aliases
         assert "垂直搜索" in description or "vertical_search" in description
 

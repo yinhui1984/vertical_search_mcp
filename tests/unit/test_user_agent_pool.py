@@ -132,8 +132,8 @@ class TestUserAgentPool:
         pool = UserAgentPool(config)
 
         # Default is per_session
-        agent1 = pool.get_user_agent()
-        agent2 = pool.get_user_agent()
+        pool.get_user_agent()
+        pool.get_user_agent()
 
         # Override to per_request
         agent3 = pool.get_user_agent(strategy="per_request")
@@ -144,4 +144,3 @@ class TestUserAgentPool:
         pool_agents = pool.get_all_agents()
         assert agent3 in pool_agents
         assert agent4 in pool_agents
-

@@ -10,9 +10,6 @@ This module tests the logging functionality including:
 
 import os
 import tempfile
-import shutil
-import pytest
-from pathlib import Path
 from core.logger import setup_logger, get_logger
 
 
@@ -36,12 +33,12 @@ class TestLoggerSetup:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "custom.log")
             logger = setup_logger(name="test_custom", log_file=log_file)
-            
+
             logger.info("Test message")
-            
+
             # Check log file exists
             assert os.path.exists(log_file)
-            
+
             # Check log file content
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -52,9 +49,9 @@ class TestLoggerSetup:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "auto_created.log")
             logger = setup_logger(name="test_auto", log_file=log_file)
-            
+
             logger.info("Auto creation test")
-            
+
             assert os.path.exists(log_file)
 
     def test_log_directory_creation(self) -> None:
@@ -62,17 +59,16 @@ class TestLoggerSetup:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = os.path.join(tmpdir, "logs")
             log_file = os.path.join(log_dir, "nested.log")
-            
+
             # Use explicit log_file path to test directory creation
             logger = setup_logger(name="test_nested", log_file=log_file)
             logger.info("Nested directory test")
-            
+
             # Flush to ensure write completes
-            import logging
             for handler in logger.handlers:
-                if hasattr(handler, 'flush'):
+                if hasattr(handler, "flush"):
                     handler.flush()
-            
+
             assert os.path.exists(log_dir), f"Log directory should exist: {log_dir}"
             assert os.path.exists(log_file), f"Log file should exist: {log_file}"
 
@@ -85,12 +81,12 @@ class TestLogLevels:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "debug.log")
             logger = setup_logger(name="test_debug", log_file=log_file, log_level=10)  # DEBUG
-            
+
             logger.debug("Debug message")
             logger.info("Info message")
             logger.warning("Warning message")
             logger.error("Error message")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Debug message" in content
@@ -103,12 +99,12 @@ class TestLogLevels:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "info.log")
             logger = setup_logger(name="test_info", log_file=log_file, log_level=20)  # INFO
-            
+
             logger.debug("Debug message")
             logger.info("Info message")
             logger.warning("Warning message")
             logger.error("Error message")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Debug message" not in content
@@ -121,12 +117,12 @@ class TestLogLevels:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "warning.log")
             logger = setup_logger(name="test_warning", log_file=log_file, log_level=30)  # WARNING
-            
+
             logger.debug("Debug message")
             logger.info("Info message")
             logger.warning("Warning message")
             logger.error("Error message")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Debug message" not in content
@@ -139,12 +135,12 @@ class TestLogLevels:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "error.log")
             logger = setup_logger(name="test_error", log_file=log_file, log_level=40)  # ERROR
-            
+
             logger.debug("Debug message")
             logger.info("Info message")
             logger.warning("Warning message")
             logger.error("Error message")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Debug message" not in content
@@ -161,24 +157,26 @@ class TestLogFormat:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "format.log")
             logger = setup_logger(name="test_format", log_file=log_file)
-            
+
             logger.info("Format test message")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 # Check for timestamp format: YYYY-MM-DD HH:MM:SS
-                assert "202" in content or "2024" in content or "2025" in content or "2026" in content
+                assert (
+                    "202" in content or "2024" in content or "2025" in content or "2026" in content
+                )
 
     def test_log_format_contains_level(self) -> None:
         """Test that log format contains log level."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "format_level.log")
             logger = setup_logger(name="test_format_level", log_file=log_file)
-            
+
             logger.info("Info test")
             logger.warning("Warning test")
             logger.error("Error test")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "INFO" in content
@@ -190,10 +188,10 @@ class TestLogFormat:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "format_message.log")
             logger = setup_logger(name="test_format_message", log_file=log_file)
-            
+
             test_message = "Test message for format check"
             logger.info(test_message)
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert test_message in content
@@ -203,9 +201,9 @@ class TestLogFormat:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "format_filename.log")
             logger = setup_logger(name="test_format_filename", log_file=log_file)
-            
+
             logger.info("Filename test")
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 # Should contain filename and line number
@@ -226,17 +224,17 @@ class TestLogRotation:
                 max_bytes=1024,  # 1KB
                 backup_count=3,
             )
-            
+
             # Write enough data to trigger rotation
             large_message = "X" * 100  # 100 bytes per message
             for i in range(20):  # 20 messages = ~2KB, should trigger rotation
                 logger.info(f"{large_message} {i}")
-            
+
             # Check for backup files
             log_dir = os.path.dirname(log_file)
             log_base = os.path.basename(log_file)
             backup_files = [f for f in os.listdir(log_dir) if f.startswith(log_base)]
-            
+
             # Should have at least the main file, possibly backups
             assert len(backup_files) >= 1
 
@@ -251,17 +249,17 @@ class TestLogRotation:
                 max_bytes=512,  # 512 bytes
                 backup_count=backup_count,
             )
-            
+
             # Write enough data to trigger multiple rotations
             large_message = "Y" * 100
             for i in range(30):  # Should trigger multiple rotations
                 logger.info(f"{large_message} {i}")
-            
+
             # Check backup files don't exceed backup_count
             log_dir = os.path.dirname(log_file)
             log_base = os.path.basename(log_file)
             backup_files = [f for f in os.listdir(log_dir) if f.startswith(log_base)]
-            
+
             # Should not exceed backup_count + 1 (main file)
             assert len(backup_files) <= backup_count + 1
 
@@ -275,39 +273,34 @@ class TestLogRotation:
                 max_bytes=1024,  # 1KB
                 backup_count=2,
             )
-            
+
             # Write messages before rotation
             for i in range(5):
                 logger.info(f"Before rotation {i}")
-            
+
             # Trigger rotation by writing large messages
             large_message = "Z" * 200
             for i in range(10):
                 logger.info(f"{large_message} {i}")
-            
+
             # Flush to ensure all writes are complete
-            import logging
             for handler in logger.handlers:
                 handler.flush()
-            
-            # Check that old messages are preserved in backup files
-            log_dir = os.path.dirname(log_file)
-            log_base = os.path.basename(log_file)
-            
+
             # Read all log files (main + backups)
             all_content = ""
             # Check main file
             if os.path.exists(log_file):
                 with open(log_file, "r", encoding="utf-8") as f:
                     all_content += f.read()
-            
+
             # Check backup files (.log.1, .log.2, etc.)
             for i in range(1, 10):  # Check up to 9 backup files
                 backup_file = f"{log_file}.{i}"
                 if os.path.exists(backup_file):
                     with open(backup_file, "r", encoding="utf-8") as f:
                         all_content += f.read()
-            
+
             # Should contain messages from before rotation (may be in backup files)
             # Note: Due to rotation behavior, "Before rotation" messages might be in backup files
             # We verify that rotation happened and content is preserved somewhere
@@ -324,12 +317,12 @@ class TestErrorLogging:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "error_exc.log")
             logger = setup_logger(name="test_error_exc", log_file=log_file)
-            
+
             try:
                 raise ValueError("Test exception")
-            except ValueError as e:
+            except ValueError:
                 logger.error("Error occurred", exc_info=True)
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Error occurred" in content
@@ -340,14 +333,13 @@ class TestErrorLogging:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "error_no_exc.log")
             logger = setup_logger(name="test_error_no_exc", log_file=log_file)
-            
+
             try:
                 raise ValueError("Test exception")
             except ValueError:
                 logger.error("Error occurred", exc_info=False)
-            
+
             with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 assert "Error occurred" in content
                 # Without exc_info, traceback should be minimal
-

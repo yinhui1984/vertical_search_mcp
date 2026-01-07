@@ -6,9 +6,7 @@ to process search results with full article content.
 """
 
 import asyncio
-import yaml
 from typing import List, Dict, Any, Optional, Callable, Awaitable
-from pathlib import Path
 from core.browser_pool import BrowserPool
 from core.cache import SearchCache
 from core.content_fetcher import ContentFetcher
@@ -66,9 +64,9 @@ class ContentProcessor:
         # Configuration
         self.concurrency = self.fetch_config.get("concurrency", 5)
         self.fetch_timeout = self.fetch_config.get("timeout", 10)
-        self.single_article_threshold = self.thresholds.get("single_article", 3000)
-        self.total_content_threshold = self.thresholds.get("total_content", 50000)
-        self.final_output_threshold = self.thresholds.get("final_output", 80000)
+        self.single_article_threshold: int = int(self.thresholds.get("single_article", 3000))
+        self.total_content_threshold: int = int(self.thresholds.get("total_content", 50000))
+        self.final_output_threshold: int = int(self.thresholds.get("final_output", 80000))
 
     async def process_results(
         self,
@@ -123,7 +121,7 @@ class ContentProcessor:
             if content := result.get("content"):
                 tokens = self.token_estimator.estimate_tokens(content)
                 result["content_tokens"] = tokens
-                
+
                 title = result.get("title", "Unknown")
                 needs_compression = tokens > self.single_article_threshold
                 self.logger.info(
@@ -174,13 +172,11 @@ class ContentProcessor:
                                 f"({new_tokens/original_tokens*100:.1f}% of original)"
                             )
                         else:
-                            self.logger.info(
-                                f"Article '{title}' compressed: {new_tokens} tokens"
-                            )
+                            self.logger.info(f"Article '{title}' compressed: {new_tokens} tokens")
                 except Exception as e:
                     self.logger.error(
                         f"Failed to compress article '{article.get('title', 'Unknown')}': {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     # Keep original content on failure
 
@@ -225,11 +221,7 @@ class ContentProcessor:
             for result in results:
                 if content := result.get("content"):
                     # Calculate target length per article
-                    target_chars = (
-                        len(content)
-                        * self.final_output_threshold
-                        // total_tokens
-                    )
+                    target_chars = len(content) * self.final_output_threshold // total_tokens
                     if len(content) > target_chars:
                         result["content"] = content[: target_chars - 3] + "..."
                         result["content_status"] = "truncated"
@@ -295,9 +287,7 @@ class ContentProcessor:
 
                 # Cache if successful
                 if content:
-                    cache_ttl = self.compression_config.get("cache", {}).get(
-                        "content_ttl", 3600
-                    )
+                    cache_ttl = self.compression_config.get("cache", {}).get("content_ttl", 3600)
                     self.cache.set_content(url_hash, content, ttl=cache_ttl)
 
                 fetched_count += 1
@@ -325,8 +315,10 @@ class ContentProcessor:
         Returns:
             True if article should be compressed
         """
-        tokens = article.get("content_tokens", 0)
-        should_compress = tokens > self.single_article_threshold
+        tokens: int = article.get("content_tokens", 0)
+        if not isinstance(tokens, int):
+            tokens = 0
+        should_compress: bool = bool(tokens > self.single_article_threshold)
         if should_compress:
             title = article.get("title", "Unknown")
             self.logger.info(
@@ -344,5 +336,4 @@ class ContentProcessor:
         Returns:
             True if batch compression is needed
         """
-        return total_tokens > self.total_content_threshold
-
+        return bool(total_tokens > self.total_content_threshold)

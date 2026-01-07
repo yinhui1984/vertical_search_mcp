@@ -57,9 +57,7 @@ class UserAgentPool:
             f"strategy: {self._rotation_strategy}"
         )
 
-    def get_user_agent(
-        self, strategy: Optional[str] = None, platform: Optional[str] = None
-    ) -> str:
+    def get_user_agent(self, strategy: Optional[str] = None, platform: Optional[str] = None) -> str:
         """
         Get User-Agent based on rotation strategy.
 
@@ -120,4 +118,3 @@ class UserAgentPool:
         """Reset rotation state (for testing)."""
         self._current_index = 0
         self._platform_agents.clear()
-

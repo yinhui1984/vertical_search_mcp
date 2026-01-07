@@ -9,7 +9,6 @@ import asyncio
 import hashlib
 import re
 from typing import Optional, Dict, Any
-from playwright.async_api import Page
 from core.browser_pool import BrowserPool
 from core.logger import get_logger
 from core.anti_crawler_detector import AntiCrawlerDetector, DetectionType
@@ -35,18 +34,18 @@ class ContentFetcher:
         self.browser_pool = browser_pool
         self.config = config
         self.logger = get_logger("vertical_search.content_fetcher")
-        
+
         # Initialize anti-crawler detector
         try:
             anti_crawler_config = load_anti_crawler_config()
             self.detector = AntiCrawlerDetector(anti_crawler_config)
         except Exception as e:
-            self.logger.warning(f"Failed to load anti-crawler config: {e}, continuing without detection")
+            self.logger.warning(
+                f"Failed to load anti-crawler config: {e}, continuing without detection"
+            )
             self.detector = AntiCrawlerDetector({})
 
-    async def fetch_content(
-        self, url: str, platform: str, timeout: int = 10
-    ) -> Optional[str]:
+    async def fetch_content(self, url: str, platform: str, timeout: int = 10) -> Optional[str]:
         """
         Fetch article content from URL.
 
@@ -61,7 +60,7 @@ class ContentFetcher:
         if not url or not url.strip():
             self.logger.warning(f"Empty or invalid URL provided for platform '{platform}'")
             return None
-            
+
         if platform not in self.config:
             self.logger.warning(f"Platform '{platform}' not found in config")
             return None
@@ -70,9 +69,7 @@ class ContentFetcher:
         content_selectors = platform_config.get("content_selectors", {})
 
         if not content_selectors:
-            self.logger.warning(
-                f"No content_selectors configured for platform '{platform}'"
-            )
+            self.logger.warning(f"No content_selectors configured for platform '{platform}'")
             return None
 
         page = await self.browser_pool.get_page()
@@ -89,10 +86,10 @@ class ContentFetcher:
 
             # Navigate to URL
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            
+
             # Wait a bit for page to stabilize before checking for anti-crawler
             await asyncio.sleep(0.5)
-            
+
             # Check for anti-crawler responses before attempting content extraction
             try:
                 detection = await self.detector.detect(page, platform=platform)
@@ -101,8 +98,14 @@ class ContentFetcher:
                         f"Anti-crawler detected on {url}: {detection.detection_type.value}, "
                         f"confidence: {detection.confidence}, details: {detection.details}"
                     )
-                    if detection.detection_type in [DetectionType.LOGIN_WALL, DetectionType.CAPTCHA, DetectionType.IP_BAN]:
-                        self.logger.warning(f"Skipping content extraction due to {detection.detection_type.value}")
+                    if detection.detection_type in [
+                        DetectionType.LOGIN_WALL,
+                        DetectionType.CAPTCHA,
+                        DetectionType.IP_BAN,
+                    ]:
+                        self.logger.warning(
+                            f"Skipping content extraction due to {detection.detection_type.value}"
+                        )
                         return None
             except Exception as e:
                 # If detection fails (e.g., page still loading), log and continue
@@ -135,9 +138,7 @@ class ContentFetcher:
                             )
                             break
                 except Exception as e:
-                    self.logger.debug(
-                        f"Selector '{selector}' failed: {e}, trying next"
-                    )
+                    self.logger.debug(f"Selector '{selector}' failed: {e}, trying next")
                     continue
 
             if not content or not content.strip():
@@ -188,4 +189,3 @@ class ContentFetcher:
             MD5 hash of URL
         """
         return hashlib.md5(url.encode()).hexdigest()
-

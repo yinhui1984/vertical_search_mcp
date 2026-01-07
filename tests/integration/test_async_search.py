@@ -13,7 +13,6 @@ import asyncio
 import pytest
 from typing import Dict, Any
 from mcp_server import MCPServer
-from core.task_manager import TaskManager, TaskStatus
 
 
 class TestAsyncSearchIntegration:
@@ -277,7 +276,6 @@ class TestAsyncSearchIntegration:
 
         # Wait for completion (longer timeout for content fetching)
         max_attempts = 60
-        completed = False
         for i in range(max_attempts):
             status_request = self._create_request(
                 "tools/call",
@@ -295,7 +293,6 @@ class TestAsyncSearchIntegration:
             status = response_captured["result"]["status"]
             if status == "completed":
                 assert "content" in response_captured["result"]
-                completed = True
                 break
             elif status == "failed":
                 # Long tasks may fail due to network issues, which is acceptable for testing
@@ -510,4 +507,3 @@ class TestAsyncSearchIntegration:
         # Should have seen at least some progress stages
         # (may be empty if task completes too quickly)
         assert isinstance(progress_stages, set)
-

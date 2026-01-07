@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 from core.anti_crawler_detector import (
     AntiCrawlerDetector,
     DetectionType,
-    DetectionResult,
 )
 
 
@@ -185,4 +184,3 @@ class TestAntiCrawlerDetector:
         result = await detector.detect(page, platform="test")
 
         assert result.detected is False
-

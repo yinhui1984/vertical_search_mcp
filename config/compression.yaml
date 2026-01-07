@@ -9,7 +9,7 @@ compression:
   api:
     provider: "deepseek"
     model: "deepseek-chat"  # Recommended: deepseek-chat (V3, cost-effective)
-    timeout: 30  # API call timeout in seconds
+    timeout: 60  # API call timeout in seconds
     max_retries: 2  # Maximum retry attempts on failure
   
   # Compression thresholds (in tokens)

@@ -77,19 +77,21 @@ class BasePlatformSearcher(ABC):
         """
         pass
 
-    @abstractmethod
     async def _extract_item(self, element: ElementHandle, index: int) -> Optional[Dict[str, str]]:
         """
         Extract a single result item from DOM element.
+
+        This method is used by browser-based searchers to extract results from DOM.
+        API-based searchers can use the default implementation (returns None).
 
         Args:
             element: Playwright ElementHandle representing a search result
             index: Index of the element in the results list
 
         Returns:
-            Dictionary containing result item data, or None if extraction fails
+            Dictionary containing result item data, or None if not applicable
         """
-        pass
+        return None
 
     def _sanitize_query(self, query: str) -> str:
         """

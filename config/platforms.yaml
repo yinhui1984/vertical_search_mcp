@@ -91,3 +91,45 @@ zhihu:
       - "script"
       - "style"
 
+google:
+  # API configuration for Google Custom Search
+  api:
+    base_url: "https://www.googleapis.com/customsearch/v1"
+    max_results_per_request: 10
+    max_total_results: 30
+  
+  # Platform metadata
+  metadata:
+    name: "Google"
+    display_name: "Google Custom Search"
+    description: "Search using Google Custom Search API"
+  
+  # Content extraction selectors for full article content
+  # Since Google returns results from various domains,
+  # we use generic selectors that work for most websites
+  content_selectors:
+    # Main content container selectors (tried in order)
+    main_content:
+      - "article"
+      - "main"
+      - ".content"
+      - "#content"
+      - ".post-content"
+      - ".entry-content"
+      - ".article-content"
+      - "body"  # Fallback to body if no specific container found
+    
+    # Elements to remove before extraction
+    elements_to_remove:
+      - "nav"
+      - "header"
+      - "footer"
+      - ".sidebar"
+      - ".comments"
+      - "script"
+      - "style"
+      - ".ad"
+      - ".advertisement"
+      - "[class*='ad']"
+      - "[id*='ad']"
+

@@ -120,6 +120,7 @@ class TokenBucketRateLimiter:
         Returns:
             Current number of tokens in bucket
         """
+
         async def _get() -> float:
             async with self._lock:
                 self._refill()
@@ -238,4 +239,3 @@ class RateLimitManager:
 
         # No rate limiting configured
         return True
-

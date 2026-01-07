@@ -7,7 +7,6 @@ automatic cleanup of expired tasks.
 """
 
 import asyncio
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -294,15 +293,16 @@ class TaskManager:
                             "query": task.query,
                             "platform": task.platform,
                             "created_at": task.created_at.isoformat(),
-                            "progress": {
-                                "current": task.progress.current,
-                                "total": task.progress.total,
-                                "stage": task.progress.stage,
-                                "percentage": task.progress.percentage,
-                            }
-                            if task.progress
-                            else None,
+                            "progress": (
+                                {
+                                    "current": task.progress.current,
+                                    "total": task.progress.total,
+                                    "stage": task.progress.stage,
+                                    "percentage": task.progress.percentage,
+                                }
+                                if task.progress
+                                else None
+                            ),
                         }
                     )
             return active
-

@@ -34,4 +34,3 @@ class IPBanDetected(AntiCrawlerException):
     """Raised when IP ban is detected."""
 
     pass
-

@@ -76,9 +76,7 @@ class DelayManager:
 
                 if elapsed < delay_seconds:
                     wait_time = delay_seconds - elapsed
-                    logger.debug(
-                        f"Applying {wait_time:.2f}s delay between requests for {platform}"
-                    )
+                    logger.debug(f"Applying {wait_time:.2f}s delay between requests for {platform}")
                     await asyncio.sleep(wait_time)
 
                 self._last_request_time[platform] = time.monotonic()
@@ -145,4 +143,3 @@ class DelayManager:
 
         # Random delay within range
         return random.randint(min_delay, max_delay)
-

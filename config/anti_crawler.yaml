@@ -58,6 +58,14 @@ platforms:
       content_patterns:
         - "请先登录"
         - "知乎验证"
+  
+  google:
+    rate_limit:
+      max_requests_per_minute: 10
+      max_requests_per_hour: 100
+    delay:
+      min_delay_ms: 1000
+      max_delay_ms: 3000
 
 # Anti-crawler detection responses
 detection:

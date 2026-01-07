@@ -96,7 +96,7 @@ type-check: check-venv
 	$(ACTIVATE) && $(MYPY) core/ platforms/ --strict
 
 # Combined quality check
-test-all: format lint type-check test
+test-all: lint type-check test
 	@echo "All checks passed!"
 
 # Cleanup target

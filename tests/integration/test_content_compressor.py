@@ -4,7 +4,7 @@ Tests for content compressor module.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from openai import RateLimitError, APIError
+from openai import RateLimitError
 import asyncio
 from core.content_compressor import ContentCompressor
 
@@ -35,7 +35,7 @@ class TestContentCompressor:
     def compressor(self, mock_config):
         """Create ContentCompressor instance with mocked API."""
         with patch.dict("os.environ", {"APIKEY_DEEPSEEK": "test-key"}):
-            with patch("core.content_compressor.AsyncOpenAI") as mock_openai:
+            with patch("core.content_compressor.AsyncOpenAI"):
                 compressor = ContentCompressor(mock_config)
                 compressor.client = MagicMock()
                 return compressor
@@ -93,9 +93,7 @@ class TestContentCompressor:
 
     async def test_compress_content_error_fallback(self, compressor):
         """Test compression error fallback to truncation."""
-        compressor.client.chat.completions.create = AsyncMock(
-            side_effect=Exception("API error")
-        )
+        compressor.client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
 
         content, status = await compressor.compress_content("Original long content", 10)
 
@@ -146,4 +144,3 @@ class TestContentCompressor:
         truncated = compressor._truncate(short_content, 100)
 
         assert truncated == short_content  # No truncation needed
-

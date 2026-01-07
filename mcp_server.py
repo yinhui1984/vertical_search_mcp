@@ -10,6 +10,7 @@ that provides vertical search capabilities for multiple platforms.
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import traceback
@@ -22,6 +23,7 @@ from core.task_manager import TaskManager, TaskStatus
 from platforms.weixin_searcher import WeixinSearcher
 # Zhihu searcher import disabled by default
 # from platforms.zhihu_searcher import ZhihuSearcher
+from platforms.google_searcher import GoogleSearcher
 
 
 class MCPServer:
@@ -55,6 +57,18 @@ class MCPServer:
         # Zhihu platform disabled by default due to aggressive anti-crawler measures
         # Uncomment the line below to enable Zhihu search (may not work reliably)
         # self.manager.register_platform("zhihu", ZhihuSearcher(self.manager.browser_pool))
+
+        # Register Google Custom Search (if credentials are available)
+        google_api_key = os.getenv("APIKEY_GOOGLE_CUSTOM_SEARCH")
+        google_search_id = os.getenv("APIKEY_GOOGLE_SEARCH_ID")
+        if google_api_key and google_search_id:
+            self.manager.register_platform("google", GoogleSearcher(self.manager.browser_pool))
+            self.logger.info("Google Custom Search platform registered")
+        else:
+            self.logger.warning(
+                "Google Custom Search not available: "
+                "APIKEY_GOOGLE_CUSTOM_SEARCH or APIKEY_GOOGLE_SEARCH_ID not set"
+            )
 
         self.logger.info("Vertical Search MCP Server started")
         self.logger.info(f"Registered platforms: {self.manager.get_registered_platforms()}")
@@ -125,8 +139,8 @@ class MCPServer:
                     "properties": {
                         "platform": {
                             "type": "string",
-                            "description": "Platform to search (weixin). Note: zhihu is disabled by default due to anti-crawler measures.",
-                            "enum": ["weixin"],
+                            "description": "Platform to search (weixin, google). Note: zhihu is disabled by default due to anti-crawler measures.",
+                            "enum": ["weixin", "google"],
                         },
                         "query": {
                             "type": "string",

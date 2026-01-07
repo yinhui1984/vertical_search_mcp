@@ -6,7 +6,7 @@ A scalable vertical search MCP (Model Context Protocol) server supporting multip
 
 ## Features
 
-- **Multi-platform support**: Default support for WeChat and Zhihu, easily extensible to other platforms
+- **Multi-platform support**: Default support for WeChat, Google Custom Search, and Zhihu, easily extensible to other platforms
 - **High performance**: Browser reuse mechanism, 5x speed improvement
 - **Real URL resolution**: Automatically resolves redirect links to get final destination URLs (e.g., `mp.weixin.qq.com` for WeChat, `zhihu.com` for Zhihu)
 - **Content fetching and compression**: Fetch full article content with intelligent compression using DeepSeek API
@@ -15,28 +15,16 @@ A scalable vertical search MCP (Model Context Protocol) server supporting multip
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  MCP Client (Claude)                 │
-└────────────────────┬────────────────────────────────┘
-                     │ JSON-RPC 2.0
-┌────────────────────▼────────────────────────────────┐
-│              MCP Server (mcp_server.py)              │
-│  ┌─────────────────────────────────────────────┐   │
-│  │        UnifiedSearchManager                  │   │
-│  │  - Platform routing                          │   │
-│  │  - Browser pool management                   │   │
-│  │  - Cache management                          │   │
-│  └───────┬──────────────────────┬────────────────┘  │
-│          │                      │                    │
-│  ┌───────▼────────┐    ┌───────▼────────┐          │
-│  │ WeixinSearcher │    │ ZhihuSearcher  │   ...    │
-│  └────────┬───────┘    └────────┬───────┘          │
-└───────────┼──────────────────────┼──────────────────┘
-            │                      │
-┌───────────▼──────────────────────▼──────────────────┐
-│         Playwright Browser Pool (Persistent)       │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    Client["MCP Client<br/>(Claude)"] -->|"JSON-RPC 2.0"| Server["MCP Server<br/>(mcp_server.py)"]
+    Server --> Manager["UnifiedSearchManager<br/>- Platform routing<br/>- Browser pool management<br/>- Cache management"]
+    Manager --> Weixin["WeixinSearcher"]
+    Manager --> Google["GoogleSearcher"]
+    Manager --> Zhihu["ZhihuSearcher"]
+    Weixin --> BrowserPool["Playwright Browser Pool<br/>(Persistent)"]
+    Google --> BrowserPool
+    Zhihu --> BrowserPool
 ```
 
 ## Requirements
@@ -91,7 +79,9 @@ Configure the MCP server in your AI client's settings file. For example, in Clau
       "command": "/path/to/vertical-search-mcp/.venv/bin/python",
       "args": ["/path/to/vertical-search-mcp/mcp_server.py"],
       "env": {
-        "APIKEY_DEEPSEEK": "your-deepseek-api-key-here"
+        "APIKEY_DEEPSEEK": "your-deepseek-api-key-here",
+        "APIKEY_GOOGLE_CUSTOM_SEARCH": "your-google-api-key-here",
+        "APIKEY_GOOGLE_SEARCH_ID": "your-google-search-engine-id-here"
       }
     }
   }
@@ -102,10 +92,15 @@ Configure the MCP server in your AI client's settings file. For example, in Clau
 - Replace `/path/to/vertical-search-mcp` with the actual path to your project directory
 - Use the Python interpreter from your virtual environment (`.venv/bin/python`)
 - If you're using a system-wide Python, you can use `python3` or the full path to your Python interpreter
-- **API Key for Content Compression**: Add `APIKEY_DEEPSEEK` in the `env` field if you need intelligent content compression
-  - Get your API key from: https://platform.deepseek.com/
-  - **When API key is required**: For long articles (exceeding 3000 tokens), the system uses DeepSeek API to intelligently compress content while preserving key information. Without the API key, long articles will be truncated, potentially losing important content.
-  - **When API key is optional**: For short articles (under 3000 tokens), compression is not needed, so the API key is not required.
+- **API Keys**:
+  - **Content Compression** (`APIKEY_DEEPSEEK`): Optional, for intelligent content compression
+    - Get your API key from: https://platform.deepseek.com/
+    - **When API key is required**: For long articles (exceeding 3000 tokens), the system uses DeepSeek API to intelligently compress content while preserving key information. Without the API key, long articles will be truncated, potentially losing important content.
+    - **When API key is optional**: For short articles (under 3000 tokens), compression is not needed, so the API key is not required.
+  - **Google Custom Search** (`APIKEY_GOOGLE_CUSTOM_SEARCH`, `APIKEY_GOOGLE_SEARCH_ID`): Optional, for Google search platform
+    - Get your API key and Search Engine ID from: https://developers.google.com/custom-search/v1/overview
+    - **When credentials are provided**: Google platform will be automatically registered and available for search
+    - **When credentials are missing**: Google platform will not be available, but other platforms (WeChat) will continue to work normally
 - After updating the config, restart your AI client (e.g., Claude Desktop)
 
 #### Tools: Async Search API
@@ -117,7 +112,7 @@ The MCP server provides async search tools that support long-running searches wi
 Start an async search task. Returns `task_id` immediately (< 1 second), allowing the search to run in the background.
 
 **Parameters:**
-- `platform` (required): Platform to search (`weixin` or `zhihu`)
+- `platform` (required): Platform to search (`weixin`, `google`, or `zhihu`)
 - `query` (required): Search query string (1-100 characters)
 - `max_results` (optional): Maximum number of results (1-30, default: 10)
 - `include_content` (optional): Whether to include full article content (default: `true`)
@@ -244,6 +239,28 @@ Then send JSON-RPC messages to test:
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_vertical_search", "arguments": {"platform": "weixin", "query": "Python", "max_results": 3}}}
 {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_search_status", "arguments": {"task_id": "<task_id_from_previous_response>"}}}
 ```
+
+#### Quick Test Scripts
+
+You can use the quick test scripts to test individual platforms:
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Test Weixin search
+python scripts/test_weixin.py "Python 异步编程" 10
+
+# Test Zhihu search
+python scripts/test_zhihu.py "机器学习" 15
+
+# Test Google search (requires API credentials)
+export APIKEY_GOOGLE_CUSTOM_SEARCH="your-api-key"
+export APIKEY_GOOGLE_SEARCH_ID="your-search-engine-id"
+python scripts/test_google.py "Python async programming" 10
+```
+
+These scripts provide colored output and show search progress in real-time.
 
 #### Example Screenshots
 
@@ -398,7 +415,20 @@ pytest --cov=. --cov-report=html
 
 # Run specific test
 pytest tests/unit/test_browser_pool.py -v
+
+# Run Google Custom Search tests
+pytest tests/unit/test_google_searcher.py -v
+pytest tests/integration/test_google_search.py -v
+
+# Run all Google tests
+pytest tests/unit/test_google_searcher.py tests/integration/test_google_search.py -v
 ```
+
+**Note**: Integration tests for Google Custom Search require API credentials:
+- `APIKEY_GOOGLE_CUSTOM_SEARCH`
+- `APIKEY_GOOGLE_SEARCH_ID`
+
+If credentials are not set, integration tests will be automatically skipped.
 
 ### Code Quality
 
@@ -430,6 +460,7 @@ vertical-search-mcp/
 │   └── token_estimator.py    # Token estimation
 ├── platforms/                 # Platform adapters
 │   ├── weixin_searcher.py     # WeChat searcher
+│   ├── google_searcher.py     # Google Custom Search searcher
 │   └── zhihu_searcher.py      # Zhihu searcher
 ├── config/                    # Configuration files
 │   ├── platforms.yaml         # Platform configurations

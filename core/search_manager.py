@@ -180,9 +180,7 @@ class UnifiedSearchManager:
         # Execute search
         try:
             self.logger.info(f"Executing search on {platform} for query: {query}")
-            results = await searcher.search(
-                query=query, max_results=max_results
-            )
+            results = await searcher.search(query=query, max_results=max_results)
 
             # Report progress: searching completed
             if progress_callback:
@@ -289,7 +287,9 @@ class UnifiedSearchManager:
             List of results with content added
         """
         processor = self._get_content_processor()
-        return await processor.process_results(results, platform, progress_callback=progress_callback)
+        return await processor.process_results(
+            results, platform, progress_callback=progress_callback
+        )
 
     async def close(self) -> None:
         """
