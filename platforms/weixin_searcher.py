@@ -101,10 +101,10 @@ class WeixinSearcher(BasePlatformSearcher):
             - snippet: Article snippet/description (if available)
 
         Raises:
-            ValueError: If max_results > 30
+            ValueError: If max_results exceeds platform limit
         """
-        # Validate max_results limit
-        MAX_RESULTS_LIMIT = 30
+        # Validate max_results limit from config
+        MAX_RESULTS_LIMIT = self.config.get("max_results", 100)
         if max_results > MAX_RESULTS_LIMIT:
             raise ValueError(f"max_results cannot exceed {MAX_RESULTS_LIMIT}")
 

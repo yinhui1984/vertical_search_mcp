@@ -28,6 +28,9 @@ weixin:
     display_name: "微信公众号"
     description: "Search WeChat public account articles"
   
+  # Maximum number of results per platform
+  max_results: 100
+  
   # Content extraction selectors for full article content
   content_selectors:
     # Main content container selectors (tried in order)
@@ -73,6 +76,9 @@ zhihu:
     display_name: "知乎"
     description: "Search Zhihu content"
   
+  # Maximum number of results per platform
+  max_results: 100
+  
   # Content extraction selectors for full article content
   content_selectors:
     # Main content container selectors (tried in order)
@@ -96,7 +102,7 @@ google:
   api:
     base_url: "https://www.googleapis.com/customsearch/v1"
     max_results_per_request: 10
-    max_total_results: 30
+    max_total_results: 100
   
   # Platform metadata
   metadata:

@@ -130,17 +130,20 @@ class MCPServer:
             request_id: Request ID
             params: Request parameters
         """
+        # Calculate max_results sum from all registered platforms
+        max_results_sum = self._get_max_results_sum()
+
         tools = [
             {
                 "name": "start_vertical_search",
-                "description": "Start an async vertical search task. Returns task_id immediately (< 1 second) in the response. IMPORTANT: Extract the task_id from the response (it's a UUID string like 'abc123-def456-...') and use it to call get_search_status repeatedly (every 10-15 seconds) until status is 'completed' or 'failed' to get the final results. The task_id is shown in both the 'task_id' field and in the 'content' text. If task completes quickly (< 1 second), results are returned directly with status='completed'.",
+                "description": "Start an async vertical search task across one or multiple platforms. Returns task_id immediately (< 1 second) in the response. IMPORTANT: Extract the task_id from the response (it's a UUID string like 'abc123-def456-...') and use it to call get_search_status repeatedly (every 10-15 seconds) until status is 'completed' or 'failed' to get the final results. The task_id is shown in both the 'task_id' field and in the 'content' text. If task completes quickly (< 1 second), results are returned directly with status='completed'. Supports multi-platform search: use 'all' to search all platforms, or specify platforms like 'weixin,google'.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "platform": {
                             "type": "string",
-                            "description": "Platform to search (weixin, google). Note: zhihu is disabled by default due to anti-crawler measures.",
-                            "enum": ["weixin", "google"],
+                            "description": "Platform(s) to search. Options: 'all' (default, searches all registered platforms), single platform like 'weixin' or 'google', or comma-separated like 'weixin,google'. Note: zhihu is disabled by default due to anti-crawler measures.",
+                            "default": "all",
                         },
                         "query": {
                             "type": "string",
@@ -150,10 +153,10 @@ class MCPServer:
                         },
                         "max_results": {
                             "type": "integer",
-                            "description": "Maximum number of results to return",
+                            "description": "Maximum number of results to return (total across all platforms)",
                             "default": 10,
                             "minimum": 1,
-                            "maximum": 30,
+                            "maximum": max_results_sum,
                         },
                         "include_content": {
                             "type": "boolean",
@@ -161,7 +164,7 @@ class MCPServer:
                             "default": True,
                         },
                     },
-                    "required": ["platform", "query"],
+                    "required": ["query"],
                 },
             },
             {
@@ -247,17 +250,9 @@ class MCPServer:
             request_id: Request ID
             arguments: Tool arguments containing platform, query, etc.
         """
-        # Validate required parameters
-        platform = arguments.get("platform")
+        # Get parameters
+        platform_str = arguments.get("platform", "all")
         query = arguments.get("query", "")
-
-        if not platform:
-            self.send_response(
-                request_id,
-                None,
-                {"code": -32602, "message": "Missing required parameter: platform"},
-            )
-            return
 
         if not query:
             self.send_response(
@@ -267,16 +262,16 @@ class MCPServer:
             )
             return
 
-        # Validate platform (manager is guaranteed to be initialized at this point)
-        assert self.manager is not None
-        if platform not in self.manager.get_registered_platforms():
-            available = self.manager.get_registered_platforms()
+        # Parse and validate platforms
+        try:
+            platforms = self._parse_platforms(platform_str)
+        except ValueError as e:
             self.send_response(
                 request_id,
                 None,
                 {
                     "code": -32602,
-                    "message": f"Invalid platform '{platform}'. Available platforms: {available}",
+                    "message": str(e),
                 },
             )
             return
@@ -285,36 +280,41 @@ class MCPServer:
         max_results = arguments.get("max_results", 10)
         include_content = arguments.get("include_content", True)
 
+        # Calculate max_results sum from all registered platforms
+        max_results_sum = self._get_max_results_sum()
+
         # Validate max_results
-        if not isinstance(max_results, int) or max_results < 1 or max_results > 30:
+        if not isinstance(max_results, int) or max_results < 1 or max_results > max_results_sum:
             self.send_response(
                 request_id,
                 None,
                 {
                     "code": -32602,
-                    "message": "max_results must be an integer between 1 and 30",
+                    "message": f"max_results must be an integer between 1 and {max_results_sum}",
                 },
             )
             return
 
         try:
-            # Create task
+            # Create task with comma-separated platform string
             task_id = await self.task_manager.create_task(
                 query=query,
-                platform=platform,
+                platform=",".join(platforms),
                 max_results=max_results,
                 include_content=include_content,
             )
 
-            # Estimate time
+            # Estimate time (multiply by number of platforms for multi-platform)
             estimated_time = self._estimate_time(max_results, include_content)
+            if len(platforms) > 1:
+                estimated_time = f"{estimated_time} per platform ({len(platforms)} platforms)"
 
             # Start background execution
             # Store the task reference to avoid garbage collection
             background_task = asyncio.create_task(
                 self._execute_search_task(
                     task_id=task_id,
-                    platform=platform,
+                    platforms=platforms,
                     query=query,
                     max_results=max_results,
                     include_content=include_content,
@@ -336,7 +336,9 @@ class MCPServer:
             if task and task.status == TaskStatus.COMPLETED:
                 # Task completed quickly, return results directly
                 self.logger.info(f"Task {task_id} completed quickly, returning results directly")
-                result_text = self._format_search_results(platform, query, task.results or [])
+                # Use first platform for formatting (or "all" if multiple)
+                display_platform = platforms[0] if len(platforms) == 1 else ",".join(platforms)
+                result_text = self._format_search_results(display_platform, query, task.results or [])
                 self.send_response(
                     request_id,
                     {
@@ -397,13 +399,12 @@ class MCPServer:
             request_id: Request ID
             arguments: Tool arguments containing task_id
         """
+        logger = get_logger("vertical_search.mcp_server")
         task_id = arguments.get("task_id")
         if not task_id:
-            self.send_response(
-                request_id,
-                None,
-                {"code": -32602, "message": "Missing required parameter: task_id"},
-            )
+            error_response = {"code": -32602, "message": "Missing required parameter: task_id"}
+            logger.warning(f"get_search_status: Missing task_id parameter")
+            self.send_response(request_id, None, error_response)
             return
 
         task = await self.task_manager.get_task(task_id)
@@ -415,20 +416,19 @@ class MCPServer:
                 f"Error: Task not found. It may have expired (tasks expire after 30 minutes).\n\n"
                 f"Please check that you are using the correct task_id from start_vertical_search response."
             )
-            self.send_response(
-                request_id,
-                {
-                    "task_id": task_id,
-                    "status": "not_found",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": error_text,
-                        }
-                    ],
-                    "error": "Task not found. It may have expired (tasks expire after 30 minutes).",
-                },
-            )
+            response = {
+                "task_id": task_id,
+                "status": "not_found",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": error_text,
+                    }
+                ],
+                "error": "Task not found. It may have expired (tasks expire after 30 minutes).",
+            }
+            logger.info(f"get_search_status response for {task_id}: status=not_found")
+            self.send_response(request_id, response)
             return
 
         elapsed = (datetime.now() - task.created_at).total_seconds()
@@ -460,22 +460,34 @@ class MCPServer:
                 f"Elapsed time: {int(elapsed)} seconds"
             )
 
-            self.send_response(
-                request_id,
-                {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": message_text,
-                        }
-                    ],
-                    "task_id": task_id,
-                    "status": "running",
-                    "progress": progress_dict,
-                    "elapsed_time": f"{int(elapsed)} seconds",
-                    "message": message_text,
-                },
-            )
+            response = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": message_text,
+                    }
+                ],
+                "task_id": task_id,
+                "status": "running",
+                "progress": progress_dict,
+                "elapsed_time": f"{int(elapsed)} seconds",
+                "message": message_text,
+            }
+            
+            # Log response summary
+            if progress_dict:
+                logger.info(
+                    f"get_search_status response for {task_id}: status=running, "
+                    f"progress={progress_dict['percentage']}% ({progress_dict['current']}/{progress_dict['total']}), "
+                    f"stage={progress_dict['stage']}, elapsed={int(elapsed)}s"
+                )
+            else:
+                logger.info(
+                    f"get_search_status response for {task_id}: status=running, "
+                    f"no progress info, elapsed={int(elapsed)}s"
+                )
+            
+            self.send_response(request_id, response)
 
         elif task.status == TaskStatus.COMPLETED:
             result_text = self._format_search_results(
@@ -489,21 +501,25 @@ class MCPServer:
                 f"Elapsed time: {int(elapsed)} seconds\n\n"
                 f"{result_text}"
             )
-            self.send_response(
-                request_id,
-                {
-                    "task_id": task_id,
-                    "status": "completed",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": full_result_text,
-                        }
-                    ],
-                    "total_results": len(task.results) if task.results else 0,
-                    "elapsed_time": f"{int(elapsed)} seconds",
-                },
+            response = {
+                "task_id": task_id,
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": full_result_text,
+                    }
+                ],
+                "total_results": len(task.results) if task.results else 0,
+                "elapsed_time": f"{int(elapsed)} seconds",
+            }
+            
+            logger.info(
+                f"get_search_status response for {task_id}: status=completed, "
+                f"total_results={len(task.results) if task.results else 0}, elapsed={int(elapsed)}s"
             )
+            
+            self.send_response(request_id, response)
 
         elif task.status == TaskStatus.FAILED:
             error_text = (
@@ -512,31 +528,39 @@ class MCPServer:
                 f"Error: {task.error or 'Unknown error'}\n"
                 f"Elapsed time: {int(elapsed)} seconds"
             )
-            self.send_response(
-                request_id,
-                {
-                    "task_id": task_id,
-                    "status": "failed",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": error_text,
-                        }
-                    ],
-                    "error": task.error or "Unknown error",
-                    "elapsed_time": f"{int(elapsed)} seconds",
-                },
+            response = {
+                "task_id": task_id,
+                "status": "failed",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": error_text,
+                    }
+                ],
+                "error": task.error or "Unknown error",
+                "elapsed_time": f"{int(elapsed)} seconds",
+            }
+            
+            logger.info(
+                f"get_search_status response for {task_id}: status=failed, "
+                f"error={task.error or 'Unknown error'}, elapsed={int(elapsed)}s"
             )
+            
+            self.send_response(request_id, response)
 
         else:  # PENDING or CANCELLED
-            self.send_response(
-                request_id,
-                {
-                    "task_id": task_id,
-                    "status": task.status.value,
-                    "elapsed_time": f"{int(elapsed)} seconds",
-                },
+            response = {
+                "task_id": task_id,
+                "status": task.status.value,
+                "elapsed_time": f"{int(elapsed)} seconds",
+            }
+            
+            logger.info(
+                f"get_search_status response for {task_id}: status={task.status.value}, "
+                f"elapsed={int(elapsed)}s"
             )
+            
+            self.send_response(request_id, response)
 
     async def _handle_cancel_search(
         self, request_id: int, arguments: Dict[str, Any]
@@ -581,25 +605,53 @@ class MCPServer:
             )
 
     def _format_search_results(
-        self, platform: str, query: str, results: List[Dict[str, str]]
+        self, platform: str, query: str, results: List[Dict[str, Any]]
     ) -> str:
         """
         Format search results as text.
 
         Args:
-            platform: Platform name
+            platform: Platform name(s) - can be single platform or comma-separated
             query: Search query
             results: List of search result dictionaries
 
         Returns:
             Formatted text string
         """
-        platform_name = {"weixin": "WeChat", "zhihu": "Zhihu"}.get(platform, platform)
+        # Check if this is a multi-platform result
+        platforms_in_results = set()
+        for result in results:
+            result_platform = result.get("platform")
+            if result_platform:
+                platforms_in_results.add(result_platform)
+
+        is_multi_platform = len(platforms_in_results) > 1
+
+        # Format platform name(s) for display
+        if is_multi_platform:
+            platform_names = []
+            for p in sorted(platforms_in_results):
+                display_name = {"weixin": "WeChat", "zhihu": "Zhihu", "google": "Google"}.get(p, p)
+                platform_names.append(display_name)
+            platform_display = ", ".join(platform_names)
+        else:
+            # Single platform or no platform info
+            if platform and "," in platform:
+                # Comma-separated platform string
+                platforms_list = [p.strip() for p in platform.split(",")]
+                platform_display = ", ".join(
+                    [{"weixin": "WeChat", "zhihu": "Zhihu", "google": "Google"}.get(p, p) for p in platforms_list]
+                )
+            else:
+                platform_display = {"weixin": "WeChat", "zhihu": "Zhihu", "google": "Google"}.get(platform, platform)
 
         if not results:
-            return f"No results found for '{query}' on {platform_name}."
+            return f"No results found for '{query}' on {platform_display}."
 
-        result_text = f"Found {len(results)} result(s) for '{query}' on {platform_name}:\n\n"
+        if is_multi_platform:
+            result_text = f"Found {len(results)} result(s) for '{query}' across {platform_display}:\n\n"
+        else:
+            result_text = f"Found {len(results)} result(s) for '{query}' on {platform_display}:\n\n"
 
         for i, result in enumerate(results, 1):
             title = result.get("title", "Untitled")
@@ -609,8 +661,15 @@ class MCPServer:
             snippet = result.get("snippet", "")
             content = result.get("content", "")
             content_status = result.get("content_status", "")
+            result_platform = result.get("platform", "")
 
             result_text += f"{i}. **{title}**\n"
+            
+            # Show platform source for multi-platform results
+            if is_multi_platform and result_platform:
+                platform_label = {"weixin": "WeChat", "zhihu": "Zhihu", "google": "Google"}.get(result_platform, result_platform)
+                result_text += f"   Platform: {platform_label}\n"
+            
             if source:
                 result_text += f"   Source: {source}\n"
             if date:
@@ -668,10 +727,187 @@ class MCPServer:
             else:
                 return "40-60 seconds"
 
+    def _get_max_results_sum(self) -> int:
+        """
+        Calculate the sum of max_results from all registered platforms.
+
+        Returns:
+            Sum of max_results from all platforms, or 100 if no platforms registered
+        """
+        if not self.manager:
+            return 100  # Default fallback
+
+        platform_config = self.manager._platform_config
+        registered_platforms = self.manager.get_registered_platforms()
+
+        if not registered_platforms:
+            return 100  # Default fallback
+
+        max_results_sum = 0
+        for platform in registered_platforms:
+            if platform == "google":
+                # Google uses api.max_total_results
+                max_results = platform_config.get(platform, {}).get("api", {}).get("max_total_results", 100)
+            else:
+                # Other platforms use max_results
+                max_results = platform_config.get(platform, {}).get("max_results", 100)
+            max_results_sum += max_results
+
+        return max_results_sum if max_results_sum > 0 else 100
+
+    def _parse_platforms(self, platform_str: str) -> List[str]:
+        """
+        Parse platform string into list of platform names.
+
+        Supports:
+        - "all" -> all registered platforms
+        - "weixin" -> ["weixin"]
+        - "weixin,google" -> ["weixin", "google"]
+        - "weixin, google" -> ["weixin", "google"] (handles spaces)
+
+        Args:
+            platform_str: Platform string to parse
+
+        Returns:
+            List of platform names
+
+        Raises:
+            ValueError: If platform string is invalid or contains unknown platforms
+        """
+        if not platform_str or not platform_str.strip():
+            platform_str = "all"
+
+        platform_str = platform_str.strip().lower()
+
+        # Get registered platforms
+        assert self.manager is not None
+        registered_platforms = self.manager.get_registered_platforms()
+
+        if not registered_platforms:
+            raise ValueError("No platforms are registered")
+
+        # Handle "all"
+        if platform_str == "all":
+            return registered_platforms
+
+        # Parse comma-separated list
+        platforms = [p.strip() for p in platform_str.split(",")]
+        platforms = [p for p in platforms if p]  # Remove empty strings
+
+        if not platforms:
+            raise ValueError("No platforms specified")
+
+        # Validate all platforms exist
+        invalid_platforms = [p for p in platforms if p not in registered_platforms]
+        if invalid_platforms:
+            raise ValueError(
+                f"Invalid platform(s): {invalid_platforms}. "
+                f"Available platforms: {registered_platforms}"
+            )
+
+        return platforms
+
+    def _deduplicate_results_by_url(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deduplicate results by URL, keeping first occurrence.
+
+        Args:
+            results: List of result dictionaries
+
+        Returns:
+            Deduplicated list of results
+        """
+        seen_urls: set[str] = set()
+        deduplicated: List[Dict[str, Any]] = []
+
+        for result in results:
+            url = result.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                deduplicated.append(result)
+            elif not url:
+                # Keep results without URLs (shouldn't happen, but be safe)
+                deduplicated.append(result)
+
+        return deduplicated
+
+    def _create_platform_progress_callback(
+        self,
+        platform_name: str,
+        platform_index: int,
+        total_platforms: int,
+        task_id: str,
+    ) -> Callable[[str, str, int, int], Any]:
+        """
+        Create progress callback that adds platform context for multi-platform searches.
+
+        Args:
+            platform_name: Name of the platform being searched
+            platform_index: Zero-based index of the platform (0, 1, 2, ...)
+            total_platforms: Total number of platforms being searched
+            task_id: Task identifier for progress updates
+
+        Returns:
+            Async callback function with signature (stage, message, current, total) -> None
+        """
+        async def progress_callback(stage: str, message: str, current: int, total: int) -> None:
+            # Calculate overall progress across all platforms
+            # Each platform contributes 100 points, current platform progress is (current/total * 100)
+            platform_progress = int((current / total * 100)) if total > 0 else 0
+            
+            # Ensure platform_progress is at least 1% when search has started (to show progress)
+            if current > 0 and total > 0:
+                platform_progress = max(1, platform_progress)
+            
+            overall_current = platform_index * 100 + platform_progress
+            overall_total = total_platforms * 100
+
+            # Ensure progress never goes backwards by checking current task progress
+            task = await self.task_manager.get_task(task_id)
+            if task and task.progress:
+                current_progress = task.progress.current
+                if overall_current < current_progress:
+                    # Don't report progress that's less than current
+                    overall_current = current_progress
+                    # Recalculate platform_progress to match
+                    platform_progress = overall_current - platform_index * 100
+
+            # Calculate overall percentage
+            percentage = int((overall_current / overall_total * 100)) if overall_total > 0 else 0
+
+            # Build message with platform prefix for multi-platform searches
+            if total_platforms > 1:
+                # Add overall progress context to message for clarity
+                full_message = (
+                    f"Platform {platform_index + 1}/{total_platforms} ({platform_name}): {message} "
+                    f"[Overall: {percentage}%]"
+                )
+                full_stage = f"{platform_name}_{stage}"
+            else:
+                full_message = message
+                full_stage = stage
+
+            # Log progress update
+            logger = get_logger("vertical_search.mcp_server")
+            logger.info(
+                f"Task {task_id} progress: [{full_stage}] {full_message} "
+                f"({overall_current}/{overall_total}, {percentage}%)"
+            )
+
+            await self.task_manager.update_task_progress(
+                task_id=task_id,
+                current=overall_current,
+                total=overall_total,
+                stage=full_stage,
+                message=full_message,
+            )
+
+        return progress_callback
+
     async def _execute_search_task(
         self,
         task_id: str,
-        platform: str,
+        platforms: List[str],
         query: str,
         max_results: int,
         include_content: bool,
@@ -680,12 +916,13 @@ class MCPServer:
         Execute search task in background.
 
         This runs as an asyncio.create_task() and updates progress via TaskManager.
+        Supports both single and multi-platform searches.
 
         Args:
             task_id: Task identifier
-            platform: Platform name
+            platforms: List of platform names to search
             query: Search query
-            max_results: Maximum number of results
+            max_results: Maximum number of results (total across all platforms)
             include_content: Whether to include content
         """
         logger = get_logger("vertical_search.mcp_server")
@@ -693,13 +930,213 @@ class MCPServer:
         try:
             # Update status to running
             await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
+            total_platforms = len(platforms)
+            
             logger.info(
-                f"Task {task_id} started execution: {platform}:{query}, "
+                f"Task {task_id} started execution: platforms={platforms}, query={query}, "
                 f"max_results={max_results}, include_content={include_content}"
             )
 
-            # Define progress callback
+            # Multi-platform search
+            if total_platforms > 1:
+                # Report multi-platform start
+                start_message = f"Multi-platform search: Starting search on {total_platforms} platforms ({', '.join(platforms)})"
+                logger.info(f"Task {task_id} progress: [multi_platform_start] {start_message} (0/{total_platforms * 100}, 0%)")
+                await self.task_manager.update_task_progress(
+                    task_id=task_id,
+                    current=0,
+                    total=total_platforms * 100,
+                    stage="multi_platform_start",
+                    message=start_message,
+                )
+
+                # Calculate results per platform
+                results_per_platform = max_results // total_platforms
+                remaining = max_results % total_platforms
+
+                all_results: List[Dict[str, Any]] = []
+                platform_results: Dict[str, Dict[str, Any]] = {}
+                failed_platforms: List[str] = []
+
+                # Search each platform sequentially
+                for idx, platform_name in enumerate(platforms):
+                    # Calculate results for this platform
+                    current_max = results_per_platform
+                    if idx == total_platforms - 1:
+                        current_max += remaining
+
+                    # Report platform start with clear logging
+                    platform_start_current = idx * 100
+                    platform_start_total = total_platforms * 100
+                    platform_start_percentage = int((platform_start_current / platform_start_total) * 100) if platform_start_total > 0 else 0
+                    
+                    # Log platform switch for clarity
+                    if idx > 0:
+                        logger.info(
+                            f"Task {task_id}: Switching to platform {idx + 1}/{total_platforms} ({platform_name}). "
+                            f"Previous platform completed. Current overall progress: {platform_start_current}/{platform_start_total} ({platform_start_percentage}%)"
+                        )
+                    
+                    platform_start_message = f"Platform {idx + 1}/{total_platforms} ({platform_name}): Starting search... [Overall: {platform_start_percentage}%]"
+                    logger.info(
+                        f"Task {task_id} progress: [{platform_name}_start] {platform_start_message} "
+                        f"({platform_start_current}/{platform_start_total}, {platform_start_percentage}%)"
+                    )
+                    await self.task_manager.update_task_progress(
+                        task_id=task_id,
+                        current=platform_start_current,
+                        total=platform_start_total,
+                        stage=f"{platform_name}_start",
+                        message=platform_start_message,
+                    )
+
+                    try:
+                        # Create platform-specific progress callback
+                        progress_callback = self._create_platform_progress_callback(
+                            platform_name=platform_name,
+                            platform_index=idx,
+                            total_platforms=total_platforms,
+                            task_id=task_id,
+                        )
+
+                        # Execute search
+                        assert self.manager is not None
+                        logger.debug(f"Task {task_id}: Searching platform {platform_name}")
+                        results = await self.manager.search(
+                            platform=platform_name,
+                            query=query,
+                            max_results=current_max,
+                            use_cache=True,
+                            include_content=include_content,
+                            progress_callback=progress_callback,
+                        )
+
+                        # Mark each result with its source platform
+                        for result in results:
+                            result["platform"] = platform_name
+
+                        all_results.extend(results)
+                        platform_results[platform_name] = {
+                            "success": True,
+                            "count": len(results),
+                        }
+
+                        # Report platform completion
+                        platform_complete_current = (idx + 1) * 100
+                        platform_complete_total = total_platforms * 100
+                        platform_complete_percentage = int((platform_complete_current / platform_complete_total) * 100) if platform_complete_total > 0 else 0
+                        platform_complete_message = (
+                            f"Platform {idx + 1}/{total_platforms} ({platform_name}): Completed ({len(results)} results) "
+                            f"[Overall: {platform_complete_percentage}%]"
+                        )
+                        logger.info(
+                            f"Task {task_id} progress: [{platform_name}_completed] {platform_complete_message} "
+                            f"({platform_complete_current}/{platform_complete_total}, {platform_complete_percentage}%)"
+                        )
+                        await self.task_manager.update_task_progress(
+                            task_id=task_id,
+                            current=platform_complete_current,
+                            total=platform_complete_total,
+                            stage=f"{platform_name}_completed",
+                            message=platform_complete_message,
+                        )
+
+                        logger.info(
+                            f"Task {task_id}: Platform {platform_name} completed with {len(results)} results"
+                        )
+
+                    except Exception as e:
+                        error_msg = str(e)
+                        logger.error(
+                            f"Task {task_id}: Platform {platform_name} failed: {error_msg}",
+                            exc_info=True,
+                        )
+                        failed_platforms.append(platform_name)
+                        platform_results[platform_name] = {
+                            "success": False,
+                            "error": error_msg,
+                            "count": 0,
+                        }
+
+                        # Report platform failure
+                        platform_fail_current = (idx + 1) * 100
+                        platform_fail_total = total_platforms * 100
+                        platform_fail_percentage = int((platform_fail_current / platform_fail_total) * 100) if platform_fail_total > 0 else 0
+                        platform_fail_message = (
+                            f"Platform {idx + 1}/{total_platforms} ({platform_name}): Failed: {error_msg} "
+                            f"[Overall: {platform_fail_percentage}%]"
+                        )
+                        logger.warning(
+                            f"Task {task_id} progress: [{platform_name}_failed] {platform_fail_message} "
+                            f"({platform_fail_current}/{platform_fail_total}, {platform_fail_percentage}%)"
+                        )
+                        await self.task_manager.update_task_progress(
+                            task_id=task_id,
+                            current=platform_fail_current,
+                            total=platform_fail_total,
+                            stage=f"{platform_name}_failed",
+                            message=platform_fail_message,
+                        )
+
+                # Deduplicate results by URL
+                deduplicated_results = self._deduplicate_results_by_url(all_results)
+                final_results = deduplicated_results[:max_results]
+
+                # Report final status
+                successful_platforms = total_platforms - len(failed_platforms)
+                if failed_platforms:
+                    completion_msg = (
+                        f"Multi-platform search completed: {successful_platforms}/{total_platforms} platforms, "
+                        f"{len(final_results)} total results ({len(failed_platforms)} failed: {', '.join(failed_platforms)})"
+                    )
+                else:
+                    completion_msg = (
+                        f"Multi-platform search completed: {successful_platforms}/{total_platforms} platforms, "
+                        f"{len(final_results)} total results"
+                    )
+
+                logger.info(
+                    f"Task {task_id} progress: [multi_platform_completed] {completion_msg} "
+                    f"({total_platforms * 100}/{total_platforms * 100}, 100%)"
+                )
+                await self.task_manager.update_task_progress(
+                    task_id=task_id,
+                    current=total_platforms * 100,
+                    total=total_platforms * 100,
+                    stage="multi_platform_completed",
+                    message=completion_msg,
+                )
+
+                # Check if all platforms failed
+                if successful_platforms == 0:
+                    error_summary = "; ".join(
+                        [f"{p}: {platform_results[p]['error']}" for p in failed_platforms]
+                    )
+                    raise RuntimeError(
+                        f"All platforms failed: {error_summary}"
+                    )
+
+                results = final_results
+                logger.info(
+                    f"Task {task_id}: Multi-platform search completed: "
+                    f"{len(final_results)} results from {successful_platforms}/{total_platforms} platforms"
+                )
+
+            else:
+                # Single platform search (backward compatibility)
+                platform_name = platforms[0]
+                logger.info(
+                    f"Task {task_id} started execution: {platform_name}:{query}, "
+                    f"max_results={max_results}, include_content={include_content}"
+                )
+
+                # Define progress callback (no platform prefix for single platform)
             async def progress_callback(stage: str, message: str, current: int, total: int) -> None:
+                percentage = int((current / total * 100)) if total > 0 else 0
+                logger.info(
+                    f"Task {task_id} progress: [{stage}] {message} "
+                    f"({current}/{total}, {percentage}%)"
+                )
                 await self.task_manager.update_task_progress(
                     task_id=task_id,
                     current=current,
@@ -712,7 +1149,7 @@ class MCPServer:
             assert self.manager is not None
             logger.debug(f"Task {task_id}: Calling manager.search()")
             results = await self.manager.search(
-                platform=platform,
+                    platform=platform_name,
                 query=query,
                 max_results=max_results,
                 use_cache=True,

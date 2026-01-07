@@ -116,11 +116,16 @@ class UnifiedSearchManager:
             List of search result dictionaries (with 'content' field if include_content=True)
 
         Raises:
-            ValueError: If platform is not registered or max_results > 30
+            ValueError: If platform is not registered or max_results exceeds platform limit
             RuntimeError: If search execution fails
         """
-        # Validate max_results limit
-        MAX_RESULTS_LIMIT = 30
+        # Validate max_results limit from platform config
+        platform_config = self._platform_config.get(platform, {})
+        if platform == "google":
+            MAX_RESULTS_LIMIT = platform_config.get("api", {}).get("max_total_results", 100)
+        else:
+            MAX_RESULTS_LIMIT = platform_config.get("max_results", 100)
+        
         if max_results > MAX_RESULTS_LIMIT:
             raise ValueError(f"max_results cannot exceed {MAX_RESULTS_LIMIT}")
 

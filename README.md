@@ -112,9 +112,13 @@ The MCP server provides async search tools that support long-running searches wi
 Start an async search task. Returns `task_id` immediately (< 1 second), allowing the search to run in the background.
 
 **Parameters:**
-- `platform` (required): Platform to search (`weixin`, `google`, or `zhihu`)
+- `platform` (optional): Platform(s) to search. Supports:
+  - `"all"` (default): Search all registered platforms
+  - Single platform: `"weixin"`, `"google"`, or `"zhihu"`
+  - Multiple platforms: `"weixin,google"` (comma-separated)
+  - Spaces are handled: `"weixin, google"` works the same
 - `query` (required): Search query string (1-100 characters)
-- `max_results` (optional): Maximum number of results (1-30, default: 10)
+- `max_results` (optional): Maximum number of results (total across all platforms, default: 10, maximum: sum of all platform limits)
 - `include_content` (optional): Whether to include full article content (default: `true`)
 
 **Response:**
@@ -149,9 +153,18 @@ Cancel a running search task.
     - Without API key: Falls back to safe truncation strategy, potentially losing tail content
 - When `include_content=false`: Returns only titles, URLs, snippets
 
+**Multi-Platform Search:**
+- Use `platform="all"` or omit the parameter to search all registered platforms
+- Use `platform="weixin,google"` to search specific platforms
+- Results are automatically deduplicated by URL
+- Each result includes a `platform` field indicating its source
+- Progress reports show platform-level information (e.g., "Platform 1/2 (weixin): Searching...")
+
 **Example Usage in Claude**:
 ```
 Search for Python articles on WeChat from the last week, limit to 5 results.
+Search for Python articles across all platforms, limit to 10 results.
+Search for Python articles on WeChat and Google, limit to 15 results.
 ```
 
 **IMPORTANT: Polling Required**
@@ -198,7 +211,12 @@ The search progress is reported through `get_search_status` with stages:
 - `fetching_content`: Downloading article content
 - `compressing`: Compressing content to fit token limits
 
-**Example Response**:
+For multi-platform searches, progress messages include platform context:
+- `"Platform 1/2 (weixin): Searching..."` - Shows which platform is being searched
+- `"Platform 1/2 (weixin): Completed (5 results)"` - Shows platform completion
+- `"Multi-platform search completed: 2/2 platforms, 10 total results"` - Final summary
+
+**Example Response (Single Platform)**:
 ```
 Found 5 result(s) for 'Python' on WeChat:
 
@@ -213,6 +231,27 @@ Found 5 result(s) for 'Python' on WeChat:
    Date: 2024-01-14
    Summary: 深入理解Python的asyncio模块...
    Link: https://mp.weixin.qq.com/s?src=11&timestamp=...
+
+...
+```
+
+**Example Response (Multi-Platform)**:
+```
+Found 10 result(s) for 'Python' across WeChat, Google:
+
+1. **Python变量命名规范详解**
+   Platform: WeChat
+   Source: 微信公众号
+   Date: 2024-01-15
+   Summary: 本文详细介绍了Python变量命名的最佳实践...
+   Link: https://mp.weixin.qq.com/s?src=11&timestamp=...
+
+2. **Python Async Programming Guide**
+   Platform: Google
+   Source: example.com
+   Date: 2024-01-14
+   Summary: A comprehensive guide to Python async programming...
+   Link: https://example.com/python-async
 
 ...
 ```

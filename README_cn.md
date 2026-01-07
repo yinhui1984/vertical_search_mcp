@@ -110,9 +110,13 @@ MCP 服务器提供异步搜索工具，支持长时间运行的搜索而不会�
 启动异步搜索任务。立即返回 `task_id`（< 1 秒），允许搜索在后台运行。
 
 **参数：**
-- `platform`（必需）：要搜索的平台（`weixin`、`google` 或 `zhihu`）
+- `platform`（可选）：要搜索的平台。支持：
+  - `"all"`（默认）：搜索所有注册的平台
+  - 单个平台：`"weixin"`、`"google"` 或 `"zhihu"`
+  - 多个平台：`"weixin,google"`（逗号分隔）
+  - 支持空格：`"weixin, google"` 同样有效
 - `query`（必需）：搜索查询字符串（1-100 个字符）
-- `max_results`（可选）：最大结果数（1-30，默认：10）
+- `max_results`（可选）：最大结果数（所有平台的总数，默认：10，最大值：所有平台限制的总和）
 - `include_content`（可选）：是否包含完整文章内容（默认：`true`）
 
 **响应：**
@@ -147,9 +151,18 @@ MCP 服务器提供异步搜索工具，支持长时间运行的搜索而不会�
     - 无 API 密钥：回退到安全截断策略，可能会丢失尾部内容
 - 当 `include_content=false`：仅返回标题、URL、摘要
 
+**多平台搜索：**
+- 使用 `platform="all"` 或省略参数以搜索所有注册的平台
+- 使用 `platform="weixin,google"` 搜索特定平台
+- 结果会自动按 URL 去重
+- 每个结果包含一个 `platform` 字段，指示其来源
+- 进度报告显示平台级别信息（例如，"Platform 1/2 (weixin): Searching..."）
+
 **在 Claude 中的使用示例**：
 ```
 搜索微信上的 Python 文章，限制为 5 个结果。
+在所有平台上搜索 Python 文章，限制为 10 个结果。
+在微信和 Google 上搜索 Python 文章，限制为 15 个结果。
 ```
 
 **重要：需要轮询**
@@ -196,7 +209,12 @@ while True:
 - `fetching_content`：下载文章内容
 - `compressing`：压缩内容以符合 token 限制
 
-**示例响应**：
+对于多平台搜索，进度消息包含平台上下文：
+- `"Platform 1/2 (weixin): Searching..."` - 显示正在搜索的平台
+- `"Platform 1/2 (weixin): Completed (5 results)"` - 显示平台完成情况
+- `"Multi-platform search completed: 2/2 platforms, 10 total results"` - 最终摘要
+
+**示例响应（单平台）**：
 ```
 在微信上找到 5 个 'Python' 结果：
 
@@ -211,6 +229,27 @@ while True:
    日期：2024-01-14
    摘要：深入理解Python的asyncio模块...
    链接：https://mp.weixin.qq.com/s?src=11&timestamp=...
+
+...
+```
+
+**示例响应（多平台）**：
+```
+在 WeChat, Google 上找到 10 个 'Python' 结果：
+
+1. **Python变量命名规范详解**
+   平台：WeChat
+   来源：微信公众号
+   日期：2024-01-15
+   摘要：本文详细介绍了Python变量命名的最佳实践...
+   链接：https://mp.weixin.qq.com/s?src=11&timestamp=...
+
+2. **Python Async Programming Guide**
+   平台：Google
+   来源：example.com
+   日期：2024-01-14
+   摘要：A comprehensive guide to Python async programming...
+   链接：https://example.com/python-async
 
 ...
 ```

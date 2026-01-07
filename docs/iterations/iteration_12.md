@@ -26,150 +26,150 @@
 - [x] 确认结果聚合方案：标记平台、去重、限制总数
 
 **阶段2: 实现平台解析函数 (30分钟)**
-- [ ] 在 `mcp_server.py` 中添加 `_parse_platforms()` 方法
-  - [ ] 解析 `"all"` -> 所有注册的平台
-  - [ ] 解析单个平台 `"weixin"` -> `["weixin"]`
-  - [ ] 解析多个平台 `"weixin,google"` -> `["weixin", "google"]`
-  - [ ] 处理空格：`"weixin, google"` -> `["weixin", "google"]`
-  - [ ] 验证平台是否存在，不存在时抛出 ValueError
-  - [ ] 返回可用平台列表作为错误信息的一部分
+- [x] 在 `mcp_server.py` 中添加 `_parse_platforms()` 方法
+  - [x] 解析 `"all"` -> 所有注册的平台
+  - [x] 解析单个平台 `"weixin"` -> `["weixin"]`
+  - [x] 解析多个平台 `"weixin,google"` -> `["weixin", "google"]`
+  - [x] 处理空格：`"weixin, google"` -> `["weixin", "google"]`
+  - [x] 验证平台是否存在，不存在时抛出 ValueError
+  - [x] 返回可用平台列表作为错误信息的一部分
 
 **阶段3: 修改 inputSchema (30分钟)**
-- [ ] 修改 `handle_list_tools()` 中的 `start_vertical_search` schema
-  - [ ] 将 `platform` 从 `enum` 改为 `string` 类型
-  - [ ] 更新 description，说明支持的格式
-  - [ ] 添加 `default: "all"`
-  - [ ] 从 `required` 数组中移除 `"platform"`（因为有默认值）
-  - [ ] 更新工具描述，说明多平台搜索功能
+- [x] 修改 `handle_list_tools()` 中的 `start_vertical_search` schema
+  - [x] 将 `platform` 从 `enum` 改为 `string` 类型
+  - [x] 更新 description，说明支持的格式
+  - [x] 添加 `default: "all"`
+  - [x] 从 `required` 数组中移除 `"platform"`（因为有默认值）
+  - [x] 更新工具描述，说明多平台搜索功能
 
 **阶段4: 修改任务创建和处理 (1小时)**
-- [ ] 修改 `_handle_start_vertical_search()` 方法
-  - [ ] 获取 platform 参数（默认 "all"）
-  - [ ] 调用 `_parse_platforms()` 解析平台列表
-  - [ ] 验证平台列表（处理 ValueError）
-  - [ ] 创建 task 时，platform 字段存储为逗号分隔的字符串
-  - [ ] 修改 `_execute_search_task()` 调用，传入 `platforms` 列表
-- [ ] 修改 `_execute_search_task()` 方法签名
-  - [ ] 将 `platform: str` 改为 `platforms: List[str]`
-  - [ ] 添加多平台搜索逻辑
-  - [ ] 计算每个平台的结果数量分配
-  - [ ] 实现平台级别的进度报告
+- [x] 修改 `_handle_start_vertical_search()` 方法
+  - [x] 获取 platform 参数（默认 "all"）
+  - [x] 调用 `_parse_platforms()` 解析平台列表
+  - [x] 验证平台列表（处理 ValueError）
+  - [x] 创建 task 时，platform 字段存储为逗号分隔的字符串
+  - [x] 修改 `_execute_search_task()` 调用，传入 `platforms` 列表
+- [x] 修改 `_execute_search_task()` 方法签名
+  - [x] 将 `platform: str` 改为 `platforms: List[str]`
+  - [x] 添加多平台搜索逻辑
+  - [x] 计算每个平台的结果数量分配
+  - [x] 实现平台级别的进度报告
 
 **阶段5: 实现多平台搜索执行逻辑 (2小时)**
-- [ ] 在 `_execute_search_task()` 中实现多平台循环
-  - [ ] 遍历平台列表
-  - [ ] 为每个平台创建进度回调包装器
-  - [ ] 计算当前平台的结果数量（平均分配 + 余数给最后一个）
-  - [ ] 调用 `manager.search()` 搜索每个平台
-  - [ ] 标记每个结果的来源平台（`result['platform'] = platform_name`）
-  - [ ] 收集所有平台的结果
-  - [ ] 处理平台搜索失败（继续其他平台）
-- [ ] 实现结果聚合
-  - [ ] 按 URL 去重（保留第一个出现的）
-  - [ ] 限制最终结果数量为 `max_results`
-  - [ ] 记录每个平台的搜索状态（成功/失败）
+- [x] 在 `_execute_search_task()` 中实现多平台循环
+  - [x] 遍历平台列表
+  - [x] 为每个平台创建进度回调包装器
+  - [x] 计算当前平台的结果数量（平均分配 + 余数给最后一个）
+  - [x] 调用 `manager.search()` 搜索每个平台
+  - [x] 标记每个结果的来源平台（`result['platform'] = platform_name`）
+  - [x] 收集所有平台的结果
+  - [x] 处理平台搜索失败（继续其他平台）
+- [x] 实现结果聚合
+  - [x] 按 URL 去重（保留第一个出现的）
+  - [x] 限制最终结果数量为 `max_results`
+  - [x] 记录每个平台的搜索状态（成功/失败）
 
 **阶段6: 实现进度报告包装器 (1.5小时)**
-- [ ] 创建 `create_platform_progress_callback()` 函数
-  - [ ] 接收平台名称和平台索引
-  - [ ] 返回包装后的进度回调函数
-  - [ ] 计算总体进度：`(已完成平台数 × 100 + 当前平台进度) / 总平台数`
-  - [ ] 构建带平台前缀的消息：`"Platform X/Y (platform_name): message"`
-  - [ ] 设置 stage 为 `"{platform}_{stage}"`（多平台）或 `"{stage}"`（单平台）
-  - [ ] 调用 `task_manager.update_task_progress()` 更新进度
-- [ ] 在平台搜索开始和完成时添加进度更新
-  - [ ] 平台开始：`"Platform X/Y (platform_name): Starting search..."`
-  - [ ] 平台完成：`"Platform X/Y (platform_name): Completed (N results)"`
-  - [ ] 多平台搜索完成：`"Multi-platform search completed: X/Y platforms, N total results"`
+- [x] 创建 `create_platform_progress_callback()` 函数
+  - [x] 接收平台名称和平台索引
+  - [x] 返回包装后的进度回调函数
+  - [x] 计算总体进度：`(已完成平台数 × 100 + 当前平台进度) / 总平台数`
+  - [x] 构建带平台前缀的消息：`"Platform X/Y (platform_name): message"`
+  - [x] 设置 stage 为 `"{platform}_{stage}"`（多平台）或 `"{stage}"`（单平台）
+  - [x] 调用 `task_manager.update_task_progress()` 更新进度
+- [x] 在平台搜索开始和完成时添加进度更新
+  - [x] 平台开始：`"Platform X/Y (platform_name): Starting search..."`
+  - [x] 平台完成：`"Platform X/Y (platform_name): Completed (N results)"`
+  - [x] 多平台搜索完成：`"Multi-platform search completed: X/Y platforms, N total results"`
 
 **阶段7: 错误处理和容错 (1小时)**
-- [ ] 实现平台级别的错误隔离
-  - [ ] 单个平台失败不影响其他平台
-  - [ ] 记录失败平台和错误信息
-  - [ ] 在最终进度消息中报告失败的平台
-- [ ] 处理所有平台都失败的情况
-  - [ ] 设置任务状态为 FAILED
-  - [ ] 返回聚合的错误信息
-- [ ] 处理无效平台名称
-  - [ ] 在 `_parse_platforms()` 中验证
-  - [ ] 返回清晰的错误消息，包含可用平台列表
+- [x] 实现平台级别的错误隔离
+  - [x] 单个平台失败不影响其他平台
+  - [x] 记录失败平台和错误信息
+  - [x] 在最终进度消息中报告失败的平台
+- [x] 处理所有平台都失败的情况
+  - [x] 设置任务状态为 FAILED
+  - [x] 返回聚合的错误信息
+- [x] 处理无效平台名称
+  - [x] 在 `_parse_platforms()` 中验证
+  - [x] 返回清晰的错误消息，包含可用平台列表
 
 **阶段8: 更新任务管理器（如需要）(30分钟)**
-- [ ] 检查 `TaskManager.create_task()` 是否需要修改
-  - [ ] platform 字段可以存储逗号分隔的字符串（如 `"weixin,google"`）
-  - [ ] 确保向后兼容（单平台仍然工作）
-- [ ] 检查 `SearchTask` 数据结构是否需要扩展
-  - [ ] 当前结构应该足够（platform 字段存储字符串即可）
+- [x] 检查 `TaskManager.create_task()` 是否需要修改
+  - [x] platform 字段可以存储逗号分隔的字符串（如 `"weixin,google"`）
+  - [x] 确保向后兼容（单平台仍然工作）
+- [x] 检查 `SearchTask` 数据结构是否需要扩展
+  - [x] 当前结构应该足够（platform 字段存储字符串即可）
 
 **阶段9: 代码质量检查 (30分钟)**
-- [ ] 代码风格检查
-  - [ ] 遵循 PEP 8 规范
-  - [ ] 使用类型提示（Type Hints）
-  - [ ] 添加详细的 docstrings
-- [ ] 类型检查
-  - [ ] 运行 `mypy mcp_server.py`
-  - [ ] 修复所有类型错误
-- [ ] Lint 检查
-  - [ ] 运行 `flake8 mcp_server.py`
-  - [ ] 修复所有 lint 错误
+- [x] 代码风格检查
+  - [x] 遵循 PEP 8 规范
+  - [x] 使用类型提示（Type Hints）
+  - [x] 添加详细的 docstrings
+- [x] 类型检查
+  - [x] 运行 `mypy mcp_server.py`
+  - [x] 修复所有类型错误
+- [x] Lint 检查
+  - [x] 运行 `flake8 mcp_server.py`
+  - [x] 修复所有 lint 错误
 
 **阶段10: 单元测试 (1.5小时)**
-- [ ] 测试 `_parse_platforms()` 方法
-  - [ ] 测试 `"all"` -> 所有平台
-  - [ ] 测试单个平台 `"weixin"`
-  - [ ] 测试多个平台 `"weixin,google"`
-  - [ ] 测试带空格 `"weixin, google"`
-  - [ ] 测试无效平台名称
-  - [ ] 测试空字符串（应该使用默认 "all"）
-- [ ] 测试进度计算
-  - [ ] 测试单平台进度（应该与之前相同）
-  - [ ] 测试多平台进度计算
-  - [ ] 测试进度消息格式
+- [x] 测试 `_parse_platforms()` 方法
+  - [x] 测试 `"all"` -> 所有平台
+  - [x] 测试单个平台 `"weixin"`
+  - [x] 测试多个平台 `"weixin,google"`
+  - [x] 测试带空格 `"weixin, google"`
+  - [x] 测试无效平台名称
+  - [x] 测试空字符串（应该使用默认 "all"）
+- [x] 测试进度计算
+  - [x] 测试单平台进度（应该与之前相同）
+  - [x] 测试多平台进度计算
+  - [x] 测试进度消息格式
 
 **阶段11: 集成测试 (2小时)**
-- [ ] 测试单平台搜索（向后兼容性）
-  - [ ] `platform="weixin"` 应该与之前行为相同
-  - [ ] 进度消息不应该有平台前缀
-  - [ ] 结果格式相同
-- [ ] 测试多平台搜索
-  - [ ] `platform="weixin,google"` 搜索两个平台
-  - [ ] 验证进度报告包含平台信息
-  - [ ] 验证结果包含 `platform` 字段
-  - [ ] 验证结果去重
-  - [ ] 验证结果总数限制
-- [ ] 测试默认行为
-  - [ ] 不提供 platform 参数，应该搜索所有平台
-  - [ ] `platform="all"` 应该搜索所有平台
-- [ ] 测试错误场景
-  - [ ] 一个平台失败，其他平台继续
-  - [ ] 所有平台失败
-  - [ ] 无效平台名称
+- [x] 测试单平台搜索（向后兼容性）
+  - [x] `platform="weixin"` 应该与之前行为相同
+  - [x] 进度消息不应该有平台前缀
+  - [x] 结果格式相同
+- [x] 测试多平台搜索
+  - [x] `platform="weixin,google"` 搜索两个平台
+  - [x] 验证进度报告包含平台信息
+  - [x] 验证结果包含 `platform` 字段
+  - [x] 验证结果去重
+  - [x] 验证结果总数限制
+- [x] 测试默认行为
+  - [x] 不提供 platform 参数，应该搜索所有平台
+  - [x] `platform="all"` 应该搜索所有平台
+- [x] 测试错误场景
+  - [x] 一个平台失败，其他平台继续
+  - [x] 所有平台失败
+  - [x] 无效平台名称
 
 **阶段12: 手动测试验证 (1小时)**
-- [ ] 测试单平台搜索
-  - [ ] `platform="weixin"` 正常工作
-  - [ ] 进度报告正常
-  - [ ] 结果格式正确
-- [ ] 测试多平台搜索
-  - [ ] `platform="weixin,google"` 搜索两个平台
-  - [ ] 观察进度报告（平台级别 + 阶段级别）
-  - [ ] 验证结果包含两个平台的内容
-  - [ ] 验证结果去重
-- [ ] 测试默认行为
-  - [ ] 不提供 platform，搜索所有平台
-  - [ ] `platform="all"` 搜索所有平台
-- [ ] 测试错误处理
-  - [ ] 无效平台名称返回错误
-  - [ ] 一个平台失败不影响其他平台
+- [x] 测试单平台搜索
+  - [x] `platform="weixin"` 正常工作
+  - [x] 进度报告正常
+  - [x] 结果格式正确
+- [x] 测试多平台搜索
+  - [x] `platform="weixin,google"` 搜索两个平台
+  - [x] 观察进度报告（平台级别 + 阶段级别）
+  - [x] 验证结果包含两个平台的内容
+  - [x] 验证结果去重
+- [x] 测试默认行为
+  - [x] 不提供 platform，搜索所有平台
+  - [x] `platform="all"` 搜索所有平台
+- [x] 测试错误处理
+  - [x] 无效平台名称返回错误
+  - [x] 一个平台失败不影响其他平台
 
 **阶段13: 文档更新 (30分钟)**
-- [ ] 更新 README.md
-  - [ ] 添加多平台搜索使用示例
-  - [ ] 说明 platform 参数格式
-  - [ ] 说明进度报告格式
-- [ ] 更新 API 文档（如果有）
-  - [ ] 更新工具描述
-  - [ ] 添加多平台搜索示例
+- [x] 更新 README.md
+  - [x] 添加多平台搜索使用示例
+  - [x] 说明 platform 参数格式
+  - [x] 说明进度报告格式
+- [x] 更新 API 文档（如果有）
+  - [x] 更新工具描述
+  - [x] 添加多平台搜索示例
 
 ## 测试用例
 

@@ -149,7 +149,31 @@ class ContentFetcher:
             return self._clean_content(content)
 
         except Exception as e:
-            self.logger.error(f"Failed to fetch content from {url}: {e}", exc_info=True)
+            # Classify errors and log appropriately
+            error_msg = str(e)
+            error_type = type(e).__name__
+            
+            # Common network/connection errors - log without full traceback
+            if "ERR_CONNECTION_CLOSED" in error_msg or "ERR_CONNECTION_REFUSED" in error_msg:
+                self.logger.warning(
+                    f"Connection error fetching {url}: {error_msg.split('Call log:')[0].strip()}"
+                )
+            elif "Timeout" in error_type or "timeout" in error_msg.lower():
+                self.logger.warning(
+                    f"Timeout fetching content from {url} (timeout: {timeout}s)"
+                )
+            elif "net::" in error_msg:
+                # Other network errors
+                net_error = error_msg.split("net::")[-1].split("\n")[0].strip()
+                self.logger.warning(
+                    f"Network error fetching {url}: {net_error}"
+                )
+            else:
+                # Unknown errors - log with full traceback for debugging
+                self.logger.error(
+                    f"Failed to fetch content from {url}: {error_type}: {error_msg}",
+                    exc_info=True
+                )
             return None
         finally:
             await page.close()
