@@ -45,7 +45,7 @@ python -m mypy core/
 | Iteration 8 | 反爬虫应对策略 | 0.5 天 | P1 | ✅ 已完成 (2026-01-06) |
 | Iteration 9 | 文章内容获取与智能压缩 | 1.5 天 | P1 | ✅ 已完成 (2026-01-06) |
 | Iteration 10 | 异步任务设计 - 统一异步模式 | 1 天 | P1 | ✅ 已完成 (2026-01-06) |
-| Iteration 11 | 错误处理、性能监控与代码质量 | 1.5 天 | P1 | ⬜ 未开始 |
+| Iteration 11 | Google Custom Search 支持 | 1 天 | P1 | ⬜ 未开始 |
 
 **总计**: 10.5-13 天
 
@@ -78,12 +78,10 @@ python -m mypy core/
 - ✅ MCP工具集成（start_vertical_search + get_search_status）（Iteration 10）
 - ✅ 进度回调机制完善（SearchManager + ContentProcessor）（Iteration 10）
 
-### Milestone 6: 生产就绪 (Iteration 11)
-- ⬜ 错误处理和重试机制完善（Iteration 11）
-- ⬜ 性能监控系统建立（Iteration 11）
-- ⬜ 稳定性达到生产级（Iteration 11）
-- ⬜ 测试覆盖率达标（Iteration 11）
-- ⬜ 代码质量达标（Iteration 11）
+### Milestone 6: 平台扩展 (Iteration 11)
+- ⬜ Google Custom Search API 集成（Iteration 11）
+- ⬜ API-based 搜索器架构支持（Iteration 11）
+- ⬜ 多平台搜索能力扩展（Iteration 11）
 
 ---
 
