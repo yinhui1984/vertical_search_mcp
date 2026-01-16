@@ -15,8 +15,21 @@ from typing import List, Optional
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.search_manager import UnifiedSearchManager
+# Import logger setup first and configure it early
 from core.logger import setup_logger, get_logger
+
+# Pre-configure logger with rolling console before importing other modules
+# This ensures all modules use the rolling console handler from the start
+# We'll reconfigure with the correct log level in main_async
+setup_logger(
+    name="vertical_search",
+    log_level=logging.INFO,  # Default level, will be overridden in main_async
+    use_rolling_console=True,
+    rolling_console_lines=4,
+)
+
+# Import other modules (they will use the pre-configured rolling logger)
+from core.search_manager import UnifiedSearchManager
 from core.initializer import register_platforms
 from core.content_compressor import ContentCompressor
 from cli.output import TextFormatter, ProgressDisplay
@@ -384,9 +397,15 @@ async def main_async(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, non-zero for error)
     """
-    # Setup logging
+    # Setup logging with rolling console for cleaner CLI display
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    setup_logger(name="vertical_search", log_level=log_level)
+    setup_logger(
+        name="vertical_search",
+        log_level=log_level,
+        use_rolling_console=True,   # Use fixed-line display for CLI
+        rolling_console_lines=4,    # Show last 4 log messages
+        force_reconfigure=True,     # Force reconfiguration to apply rolling console
+    )
     
     cli = VerticalSearchCLI()
     
