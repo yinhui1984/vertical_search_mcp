@@ -15,16 +15,26 @@ class TextFormatter:
     Provides simple, clean text output suitable for terminal display.
     """
     
-    # ANSI color codes
+    # ANSI color codes - GitHub-inspired professional palette
     RESET = "\033[0m"
     BOLD = "\033[1m"
-    CYAN = "\033[36m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    GRAY = "\033[90m"
-    RED = "\033[31m"
+    
+    # Primary text colors
+    WHITE = "\033[97m"  # Main titles and headers
+    LIGHT_GRAY = "\033[37m"  # Secondary text, content
+    DIM_GRAY = "\033[90m"  # Metadata, labels
+    
+    # Accent colors (softer, GitHub-style)
+    BLUE = "\033[94m"  # Links, URLs (softer blue)
+    GREEN = "\033[92m"  # Success, titles (softer green)
+    YELLOW = "\033[93m"  # Warnings, compressed status (softer yellow)
+    RED = "\033[91m"  # Errors, truncated status (softer red)
+    PURPLE = "\033[95m"  # Platform labels, tags (softer purple)
+    
+    # Legacy aliases for compatibility
+    CYAN = LIGHT_GRAY  # Use light gray instead of bright cyan
+    MAGENTA = PURPLE  # Use softer purple
+    GRAY = DIM_GRAY  # Use dim gray
     
     def format_results(
         self,
@@ -54,20 +64,20 @@ class TextFormatter:
         if len(platforms) > 1:
             platform_display = ", ".join(platform_names)
             output.append(
-                f"{self.BOLD}{self.CYAN}Search Results{self.RESET}: '{query}' across {platform_display}"
+                f"{self.BOLD}{self.WHITE}Search Results{self.RESET}: {self.LIGHT_GRAY}'{query}'{self.RESET} {self.DIM_GRAY}across {platform_display}{self.RESET}"
             )
         else:
             output.append(
-                f"{self.BOLD}{self.CYAN}Search Results{self.RESET}: '{query}' on {platform_names[0]}"
+                f"{self.BOLD}{self.WHITE}Search Results{self.RESET}: {self.LIGHT_GRAY}'{query}'{self.RESET} {self.DIM_GRAY}on {platform_names[0]}{self.RESET}"
             )
         
         output.append("")
         
         if not results:
-            output.append(f"{self.GRAY}No results found.{self.RESET}")
+            output.append(f"{self.DIM_GRAY}No results found.{self.RESET}")
             return "\n".join(output)
         
-        output.append(f"{self.GRAY}Found {len(results)} result(s){self.RESET}\n")
+        output.append(f"{self.DIM_GRAY}Found {len(results)} result(s){self.RESET}\n")
         
         # Results
         for i, result in enumerate(results, 1):
@@ -80,7 +90,7 @@ class TextFormatter:
             content_status = result.get("content_status", "")
             result_platform = result.get("platform", "")
             
-            output.append(f"{self.GRAY}[{i}]{self.RESET} {self.GREEN}{self.BOLD}{title}{self.RESET}")
+            output.append(f"{self.DIM_GRAY}[{i}]{self.RESET} {self.BOLD}{self.WHITE}{title}{self.RESET}")
             
             # Show platform for multi-platform results
             if len(platforms) > 1 and result_platform:
@@ -88,18 +98,18 @@ class TextFormatter:
                     result_platform, result_platform
                 )
                 output.append(
-                    f"{self.GRAY}    Platform:{self.RESET} {self.MAGENTA}{platform_label}{self.RESET}"
+                    f"{self.DIM_GRAY}    Platform:{self.RESET} {self.PURPLE}{platform_label}{self.RESET}"
                 )
             
             if source:
-                output.append(f"{self.GRAY}    Source:{self.RESET} {self.CYAN}{source}{self.RESET}")
+                output.append(f"{self.DIM_GRAY}    Source:{self.RESET} {self.LIGHT_GRAY}{source}{self.RESET}")
             if date:
-                output.append(f"{self.GRAY}    Date:{self.RESET} {self.MAGENTA}{date}{self.RESET}")
+                output.append(f"{self.DIM_GRAY}    Date:{self.RESET} {self.LIGHT_GRAY}{date}{self.RESET}")
             if snippet:
                 snippet_text = snippet[:200] + "..." if len(snippet) > 200 else snippet
-                output.append(f"{self.GRAY}    Summary:{self.RESET} {self.CYAN}{snippet_text}{self.RESET}")
+                output.append(f"{self.DIM_GRAY}    Summary:{self.RESET} {self.LIGHT_GRAY}{snippet_text}{self.RESET}")
             
-            output.append(f"{self.GRAY}    URL:{self.RESET} {self.BLUE}{url}{self.RESET}")
+            output.append(f"{self.DIM_GRAY}    URL:{self.RESET} {self.BLUE}{url}{self.RESET}")
             
             if content:
                 # Determine status display
@@ -116,15 +126,15 @@ class TextFormatter:
                     status_color = self.GREEN
                     status_label = "Content"
                 else:
-                    status_color = self.GRAY
+                    status_color = self.DIM_GRAY
                     status_label = "Content"
                 
                 status_text = f" {status_color}[{content_status}]{self.RESET}" if content_status else ""
                 output.append(
-                    f"{self.GRAY}    {status_label}{status_text}:{self.RESET} {self.GRAY}{len(content)} chars{self.RESET}"
+                    f"{self.DIM_GRAY}    {status_label}{status_text}:{self.RESET} {self.DIM_GRAY}{len(content)} chars{self.RESET}"
                 )
                 # Display content (already summarized, so no need to truncate)
-                output.append(f"{self.CYAN}{content}{self.RESET}")
+                output.append(f"{self.LIGHT_GRAY}{content}{self.RESET}")
             
             output.append("")
         
@@ -156,11 +166,17 @@ class ProgressDisplay:
     Provides simple, non-spammy progress updates.
     """
     
-    GRAY = "\033[90m"
-    CYAN = "\033[36m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
+    # GitHub-inspired professional palette
     RESET = "\033[0m"
+    DIM_GRAY = "\033[90m"  # Metadata, progress indicators
+    LIGHT_GRAY = "\033[37m"  # Secondary text
+    BLUE = "\033[94m"  # Primary actions, search messages
+    GREEN = "\033[92m"  # Success states
+    YELLOW = "\033[93m"  # Warnings
+    
+    # Legacy aliases for compatibility
+    GRAY = DIM_GRAY
+    CYAN = BLUE  # Use blue for progress messages
     
     def __init__(self, verbose: bool = False) -> None:
         """
@@ -188,19 +204,19 @@ class ProgressDisplay:
         
         if len(platforms) > 1:
             print(
-                f"\n{self.CYAN}Searching '{query}' across {', '.join(platform_names)}...{self.RESET}",
+                f"\n{self.BLUE}Searching{self.RESET} {self.LIGHT_GRAY}'{query}'{self.RESET} {self.DIM_GRAY}across {', '.join(platform_names)}...{self.RESET}",
                 file=sys.stderr,
             )
         else:
             print(
-                f"\n{self.CYAN}Searching '{query}' on {platform_names[0]}...{self.RESET}",
+                f"\n{self.BLUE}Searching{self.RESET} {self.LIGHT_GRAY}'{query}'{self.RESET} {self.DIM_GRAY}on {platform_names[0]}...{self.RESET}",
                 file=sys.stderr,
             )
     
     def show_cache_hit(self) -> None:
         """Show cache hit message."""
         if not self.cache_hit_detected:
-            print(f"{self.GRAY}[Cache hit] Returning cached results{self.RESET}", file=sys.stderr)
+            print(f"{self.DIM_GRAY}[Cache hit]{self.RESET} {self.LIGHT_GRAY}Returning cached results{self.RESET}", file=sys.stderr)
             self.cache_hit_detected = True
     
     def show_platform_progress(
@@ -220,11 +236,11 @@ class ProgressDisplay:
                 platform_name, platform_name
             )
             print(
-                f"{self.GRAY}[{platform_num}/{total_platforms}]{self.RESET} {display_name}: {message}",
+                f"{self.DIM_GRAY}[{platform_num}/{total_platforms}]{self.RESET} {self.LIGHT_GRAY}{display_name}:{self.RESET} {message}",
                 file=sys.stderr,
             )
         elif self.verbose:
-            print(f"{self.GRAY}{message}{self.RESET}", file=sys.stderr)
+            print(f"{self.DIM_GRAY}{message}{self.RESET}", file=sys.stderr)
     
     def create_progress_callback(
         self, platform_name: str, platform_index: int, total_platforms: int
@@ -263,7 +279,7 @@ class ProgressDisplay:
                 elif self.verbose:
                     percentage = int((current / total * 100)) if total > 0 else 0
                     print(
-                        f"{self.GRAY}[{stage.upper()}] {message} ({current}/{total}, {percentage}%){self.RESET}",
+                        f"{self.DIM_GRAY}[{stage.upper()}]{self.RESET} {self.LIGHT_GRAY}{message}{self.RESET} {self.DIM_GRAY}({current}/{total}, {percentage}%){self.RESET}",
                         file=sys.stderr,
                     )
         

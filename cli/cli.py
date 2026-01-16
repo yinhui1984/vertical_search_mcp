@@ -15,24 +15,36 @@ from typing import List, Optional
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import logger setup first and configure it early
-from core.logger import setup_logger, get_logger
+# Import logger setup first
+from core.logger import setup_logger, get_logger, RollingConsoleHandler
 
-# Pre-configure logger with rolling console before importing other modules
-# This ensures all modules use the rolling console handler from the start
-# We'll reconfigure with the correct log level in main_async
-setup_logger(
-    name="vertical_search",
-    log_level=logging.INFO,  # Default level, will be overridden in main_async
-    use_rolling_console=True,
-    rolling_console_lines=4,
-)
-
-# Import other modules (they will use the pre-configured rolling logger)
+# Import other modules
 from core.search_manager import UnifiedSearchManager
 from core.initializer import register_platforms
 from core.content_compressor import ContentCompressor
 from cli.output import TextFormatter, ProgressDisplay
+
+
+def _close_rolling_console_handler() -> None:
+    """
+    Close the RollingConsoleHandler and ensure clean output.
+    
+    This function finds and removes the RollingConsoleHandler from the logger,
+    allowing normal print() statements to work without interference.
+    Calling this multiple times is safe (idempotent).
+    """
+    logger = logging.getLogger("vertical_search")
+    handlers_removed = False
+    for handler in logger.handlers[:]:
+        if isinstance(handler, RollingConsoleHandler):
+            handler.close()
+            logger.removeHandler(handler)
+            handlers_removed = True
+    
+    # Add a newline to ensure cursor is at a clean position (only if handlers were removed)
+    if handlers_removed:
+        sys.stderr.write("\n")
+        sys.stderr.flush()
 
 
 class VerticalSearchCLI:
@@ -397,19 +409,22 @@ async def main_async(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, non-zero for error)
     """
-    # Setup logging with rolling console for cleaner CLI display
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    setup_logger(
-        name="vertical_search",
-        log_level=log_level,
-        use_rolling_console=True,   # Use fixed-line display for CLI
-        rolling_console_lines=4,    # Show last 4 log messages
-        force_reconfigure=True,     # Force reconfiguration to apply rolling console
-    )
-    
-    cli = VerticalSearchCLI()
+    # Determine if we should use rolling console
+    # Only use it for actual search operations, not for simple commands
+    use_rolling = not args.list_platforms
     
     try:
+        # Setup logging
+        log_level = logging.DEBUG if args.verbose else logging.INFO
+        setup_logger(
+            name="vertical_search",
+            log_level=log_level,
+            use_rolling_console=use_rolling,  # Only for search operations
+            rolling_console_lines=4,
+            force_reconfigure=True,
+        )
+        
+        cli = VerticalSearchCLI()
         await cli.initialize()
         
         # List platforms if requested
@@ -448,6 +463,11 @@ async def main_async(args: argparse.Namespace) -> int:
                 progress_display=progress_display,
             )
             
+            # Close rolling console handler before printing results
+            # This ensures output is not interfered with by the rolling log display
+            if use_rolling:
+                _close_rolling_console_handler()
+            
             # Format and print results
             output = formatter.format_results(
                 query=args.query,
@@ -459,6 +479,9 @@ async def main_async(args: argparse.Namespace) -> int:
             return 0
         
         except Exception as e:
+            # Close rolling console handler before error output
+            if use_rolling:
+                _close_rolling_console_handler()
             print(f"Error: Search failed: {e}", file=sys.stderr)
             if args.verbose:
                 import traceback
@@ -466,6 +489,9 @@ async def main_async(args: argparse.Namespace) -> int:
             return 1
     
     finally:
+        # Ensure rolling console is properly closed (safe to call multiple times)
+        if use_rolling:
+            _close_rolling_console_handler()
         await cli.close()
     
     return 0
