@@ -309,6 +309,66 @@ The `examples/` folder contains actual example screenshots of using the MCP serv
 
 These screenshots demonstrate how to use the Vertical Search MCP server in different AI clients.
 
+### CLI (Command-Line Interface)
+
+The project also provides a command-line interface for direct searching from the terminal.
+
+#### Installation
+
+After installing the project, the CLI is available as `vertical-search`:
+
+```bash
+# Install the project in development mode
+pip install -e .
+
+# Or use directly with Python
+python -m cli.cli --help
+```
+
+#### Usage Examples
+
+```bash
+# Basic search
+vertical-search "Python 异步编程"
+
+# Search specific platform
+vertical-search "Python" --platform weixin
+
+# Search multiple platforms
+vertical-search "Python" --platform weixin,google
+
+# Search all platforms
+vertical-search "Python" --platform all
+
+# Without content (faster)
+vertical-search "Python" --no-content
+
+# Limit results
+vertical-search "Python" --max-results 20
+
+# List available platforms
+vertical-search --list-platforms
+
+# Verbose mode
+vertical-search "Python" --verbose
+```
+
+#### CLI Features
+
+- **Text output**: Clean, colored text output suitable for terminal
+- **Progress display**: Simple, non-spammy progress updates
+- **Cache indication**: Shows `[Cache hit]` when results are from cache
+- **Multi-platform support**: Search across multiple platforms in one command
+- **Error handling**: Consistent error handling with MCP server
+
+#### Output Format
+
+The CLI outputs results in a readable text format with:
+- Colored titles, URLs, and metadata
+- Platform indication for multi-platform searches
+- Content status indicators (fetched, compressed, truncated)
+- Cache hit notifications
+
 ### Direct Usage
 
 ```python

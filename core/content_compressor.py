@@ -41,6 +41,35 @@ Article type identification and handling:
 
 Output format: Output the compressed content directly, without any prefix or explanation."""
 
+    # Summary prompt for CLI output
+    ARTICLE_SUMMARY_PROMPT = """You are a professional content summarizer. Please provide a concise summary of the following article.
+
+CRITICAL REQUIREMENTS:
+1. Output language: ALWAYS use Chinese (简体中文), regardless of the original article language
+2. Output format: ALWAYS use plain text only, NO markdown, NO formatting, NO special characters
+3. Length: Keep summary very concise (100-200 words maximum, prefer shorter)
+4. Content: Extract only the most essential information:
+   - Main topic and core viewpoints
+   - Key data, numbers, dates (if critical)
+   - Main conclusions and recommendations
+5. Style: Use simple, direct Chinese sentences. No bullet points, no lists, no headings
+
+Article type handling:
+- Technical articles: Summarize main technical points and key principles in simple Chinese
+- News reports: Summarize 5W1H (when, where, who, what, why, how) in Chinese
+- Opinion pieces: Summarize core arguments and conclusions in Chinese
+- Tutorial guides: Summarize main steps and key points in Chinese
+
+OUTPUT RULES:
+- Use ONLY Chinese characters and basic punctuation (。，、！？)
+- NO markdown syntax (no #, *, -, [], etc.)
+- NO formatting (no bold, italic, etc.)
+- NO code blocks or special formatting
+- Plain text paragraphs only
+- Maximum 200 words (prefer 100-150 words)
+
+Output the summary directly in plain Chinese text, without any prefix, explanation, or formatting."""
+
     BATCH_COMPRESS_PROMPT = """You are a professional content integration expert. Please integrate and compress the following multiple articles into a structured summary.
 
 Integration requirements:
@@ -389,6 +418,123 @@ Output format:
                     article["content"] = truncated
                     article["content_status"] = "truncated"
             return articles
+
+    async def summarize_content(
+        self, content: str, max_words: int = 150, temperature: float = 0.3
+    ) -> Tuple[str, str]:
+        """
+        Summarize article content using AI.
+
+        Args:
+            content: Content string to summarize
+            max_words: Target maximum words for summary (default: 150, reduced for brevity)
+            temperature: API temperature parameter (default: 0.3 for consistency)
+
+        Returns:
+            Tuple of (summary, status)
+            Status: 'summarized' | 'truncated' | 'original'
+        """
+        if not content:
+            return "", "original"
+
+        if not self.client:
+            self.logger.warning(
+                f"DeepSeek API client not available, using truncation fallback. "
+                f"Content length: {len(content)} chars"
+            )
+            # Simple truncation: roughly 1 char ≈ 1 word for Chinese
+            truncated = content[: max_words * 2] + "..." if len(content) > max_words * 2 else content
+            return truncated, "truncated"
+
+        # Calculate dynamic timeout based on content size
+        dynamic_timeout = min(120, max(60, len(content) / 100))
+        self.logger.info(
+            f"Summarizing content: {len(content)} chars -> target {max_words} words "
+            f"(timeout: {dynamic_timeout:.1f}s)"
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": self.ARTICLE_SUMMARY_PROMPT,
+                        },
+                        {
+                            "role": "user",
+                            "content": f"请用中文总结以下文章，控制在{max_words}字以内，使用纯文本格式：\n\n{content}",
+                        },
+                    ],
+                    max_tokens=max_words * 2,  # Rough estimate: 1 token ≈ 0.5 words for Chinese
+                    temperature=temperature,
+                    stream=False,
+                ),
+                timeout=dynamic_timeout,
+            )
+            summary = response.choices[0].message.content or ""
+            
+            # Clean up summary: remove markdown formatting if any
+            summary = self._clean_summary(summary)
+            
+            self.logger.info(
+                f"Successfully summarized content: {len(content)} chars -> {len(summary)} chars "
+                f"({len(summary)/len(content)*100:.1f}% of original)"
+            )
+            return summary, "summarized"
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Summary timeout after {dynamic_timeout:.1f}s, using truncation fallback")
+            truncated = content[: max_words * 2] + "..." if len(content) > max_words * 2 else content
+            return truncated, "truncated"
+        except Exception as e:
+            self.logger.error(f"Summary failed: {e}, using truncation fallback", exc_info=True)
+            truncated = content[: max_words * 2] + "..." if len(content) > max_words * 2 else content
+            return truncated, "truncated"
+
+    def _clean_summary(self, summary: str) -> str:
+        """
+        Clean summary text to ensure plain text format.
+        
+        Removes markdown formatting, special characters, and ensures Chinese output.
+        
+        Args:
+            summary: Raw summary text from AI
+            
+        Returns:
+            Cleaned plain text summary
+        """
+        import re
+        
+        if not summary:
+            return summary
+        
+        # Remove markdown headers (# ## ###)
+        summary = re.sub(r'^#{1,6}\s+', '', summary, flags=re.MULTILINE)
+        
+        # Remove markdown bold/italic (**text** or *text*)
+        summary = re.sub(r'\*\*([^*]+)\*\*', r'\1', summary)
+        summary = re.sub(r'\*([^*]+)\*', r'\1', summary)
+        
+        # Remove markdown links [text](url)
+        summary = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', summary)
+        
+        # Remove markdown code blocks (```code``` or `code`)
+        summary = re.sub(r'```[^`]*```', '', summary, flags=re.DOTALL)
+        summary = re.sub(r'`([^`]+)`', r'\1', summary)
+        
+        # Remove markdown lists (- * or 1. 2.)
+        summary = re.sub(r'^[\s]*[-*]\s+', '', summary, flags=re.MULTILINE)
+        summary = re.sub(r'^\d+\.\s+', '', summary, flags=re.MULTILINE)
+        
+        # Remove extra whitespace and newlines
+        summary = re.sub(r'\n{3,}', '\n\n', summary)
+        summary = re.sub(r'[ \t]+', ' ', summary)
+        
+        # Strip leading/trailing whitespace
+        summary = summary.strip()
+        
+        return summary
 
     def _truncate(self, content: str, max_chars: int) -> str:
         """
